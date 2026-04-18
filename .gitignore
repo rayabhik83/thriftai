@@ -1,0 +1,36 @@
+# Claude Code authoring artifact — kept locally, never committed
+CLAUDE_CODE_PROMPT.md
+
+# Virtualenv
+venv/
+.venv/
+
+# ThriftAI runtime artifacts
+.thriftai/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Build outputs
+dist/
+build/
+
+# Test + tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
