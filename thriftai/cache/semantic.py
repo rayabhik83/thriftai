@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -72,45 +73,51 @@ class SemanticCache:
         self.embedding_model = embedding_model
         self.threshold = threshold
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # See cache/__init__.py for the rationale — sqlite3 needs serialized
+        # access per-connection. The embedding network call is explicitly
+        # kept outside the lock to avoid blocking other cache ops on I/O.
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
         # Tracks the $ spent on embedding API calls since the last reset.
         # The broker reads and resets this per call so the cost report can
         # attribute embedding cost to the correct agent.
+        self._cost_lock = threading.Lock()
         self._pending_embed_cost_usd: float = 0.0
 
     def _init_schema(self) -> None:
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS semantic_cache (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_name TEXT NOT NULL,
-                prompt_hash TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                embedding BLOB NOT NULL,
-                model TEXT NOT NULL,
-                response_text TEXT NOT NULL,
-                input_tokens INTEGER DEFAULT 0,
-                output_tokens INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                hit_count INTEGER DEFAULT 0
+        with self._lock:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS semantic_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    prompt_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    model TEXT NOT NULL,
+                    response_text TEXT NOT NULL,
+                    input_tokens INTEGER DEFAULT 0,
+                    output_tokens INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    hit_count INTEGER DEFAULT 0
+                )
+                """
             )
-            """
-        )
-        self._conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_semantic_agent_prompt
-            ON semantic_cache(agent_name, prompt_hash)
-            """
-        )
-        self._conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_semantic_dedupe
-            ON semantic_cache(agent_name, prompt_hash, content_hash)
-            """
-        )
-        self._conn.commit()
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_semantic_agent_prompt
+                ON semantic_cache(agent_name, prompt_hash)
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_semantic_dedupe
+                ON semantic_cache(agent_name, prompt_hash, content_hash)
+                """
+            )
+            self._conn.commit()
 
     # -- embedding --------------------------------------------------------
 
@@ -118,19 +125,24 @@ class SemanticCache:
         """Embed non-system messages via LiteLLM.
 
         Side effect: accumulates API cost into `_pending_embed_cost_usd`.
+        Network I/O is intentionally *outside* the DB lock so other cache
+        operations don't serialize behind embedding round-trips.
         """
         import litellm
 
         text = _messages_to_text(messages)
         response = litellm.embedding(model=self.embedding_model, input=[text])
         vector = np.asarray(response.data[0]["embedding"], dtype=np.float32)
-        self._pending_embed_cost_usd += _embedding_response_cost(response)
+        cost = _embedding_response_cost(response)
+        with self._cost_lock:
+            self._pending_embed_cost_usd += cost
         return vector
 
     def take_pending_embed_cost(self) -> float:
         """Return accumulated embedding cost and reset the counter."""
-        cost = self._pending_embed_cost_usd
-        self._pending_embed_cost_usd = 0.0
+        with self._cost_lock:
+            cost = self._pending_embed_cost_usd
+            self._pending_embed_cost_usd = 0.0
         return cost
 
     # -- public API -------------------------------------------------------
@@ -153,14 +165,15 @@ class SemanticCache:
             if precomputed_embedding is not None
             else self.embed(messages)
         )
-        rows = self._conn.execute(
-            """
-            SELECT id, embedding, model, response_text, input_tokens, output_tokens
-            FROM semantic_cache
-            WHERE agent_name = ? AND prompt_hash = ?
-            """,
-            (agent_name, prompt_hash),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, embedding, model, response_text, input_tokens, output_tokens
+                FROM semantic_cache
+                WHERE agent_name = ? AND prompt_hash = ?
+                """,
+                (agent_name, prompt_hash),
+            ).fetchall()
 
         if not rows:
             return None
@@ -181,11 +194,12 @@ class SemanticCache:
         if best is None or best_sim < self.threshold:
             return None
 
-        self._conn.execute(
-            "UPDATE semantic_cache SET hit_count = hit_count + 1 WHERE id = ?",
-            (best["id"],),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE semantic_cache SET hit_count = hit_count + 1 WHERE id = ?",
+                (best["id"],),
+            )
+            self._conn.commit()
 
         return {
             "response_text": best["response_text"],
@@ -213,14 +227,15 @@ class SemanticCache:
         Skipped if this exact (agent_name, prompt_hash, content_hash) is
         already present — the exact cache handles those lookups.
         """
-        existing = self._conn.execute(
-            """
-            SELECT 1 FROM semantic_cache
-            WHERE agent_name = ? AND prompt_hash = ? AND content_hash = ?
-            LIMIT 1
-            """,
-            (agent_name, prompt_hash, content_hash),
-        ).fetchone()
+        with self._lock:
+            existing = self._conn.execute(
+                """
+                SELECT 1 FROM semantic_cache
+                WHERE agent_name = ? AND prompt_hash = ? AND content_hash = ?
+                LIMIT 1
+                """,
+                (agent_name, prompt_hash, content_hash),
+            ).fetchone()
         if existing is not None:
             return
 
@@ -232,42 +247,45 @@ class SemanticCache:
         if vector.dtype != np.float32:
             vector = vector.astype(np.float32)
 
-        self._conn.execute(
-            """
-            INSERT INTO semantic_cache
-                (agent_name, prompt_hash, content_hash, embedding, model,
-                 response_text, input_tokens, output_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                agent_name,
-                prompt_hash,
-                content_hash,
-                vector.tobytes(),
-                model,
-                response_text,
-                input_tokens,
-                output_tokens,
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO semantic_cache
+                    (agent_name, prompt_hash, content_hash, embedding, model,
+                     response_text, input_tokens, output_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    agent_name,
+                    prompt_hash,
+                    content_hash,
+                    vector.tobytes(),
+                    model,
+                    response_text,
+                    input_tokens,
+                    output_tokens,
+                ),
+            )
+            self._conn.commit()
 
     def invalidate_agent(self, agent_name: str) -> int:
         """Delete all semantic cache entries for an agent."""
-        cursor = self._conn.execute(
-            "DELETE FROM semantic_cache WHERE agent_name = ?", (agent_name,)
-        )
-        self._conn.commit()
-        return cursor.rowcount
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM semantic_cache WHERE agent_name = ?", (agent_name,)
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def stats(self) -> dict:
-        row = self._conn.execute(
-            """
-            SELECT COUNT(*) AS n,
-                   COALESCE(SUM(hit_count), 0) AS hits
-            FROM semantic_cache
-            """
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS n,
+                       COALESCE(SUM(hit_count), 0) AS hits
+                FROM semantic_cache
+                """
+            ).fetchone()
         return {
             "total_entries": int(row["n"]),
             "total_hits": int(row["hits"]),
@@ -276,7 +294,8 @@ class SemanticCache:
         }
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
 
 def _embedding_response_cost(response: Any) -> float:

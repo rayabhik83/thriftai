@@ -56,11 +56,14 @@ def agent(name: str, depends_on: list[str] | None = None) -> Callable:
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Save the previous value so nested @agent calls (A → B → A)
+            # restore the outer agent on unwind instead of clobbering it to None.
+            previous = getattr(_current_agent, "name", None)
             _current_agent.name = name
             try:
                 return fn(*args, **kwargs)
             finally:
-                _current_agent.name = None
+                _current_agent.name = previous
 
         wrapper._thriftai_meta = meta  # type: ignore
         return wrapper
