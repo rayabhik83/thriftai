@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,45 +63,53 @@ class ExactCache:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.cache_dir / "cache.db"
+        # Python 3.14's sqlite3 rejects concurrent use of a single connection
+        # from multiple threads even with check_same_thread=False. Guard every
+        # DB op with a reentrant lock so the cache is safe to share across a
+        # multi-threaded agent framework.
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
     def _init_schema(self) -> None:
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS cache_entries (
-                key TEXT PRIMARY KEY,
-                agent_name TEXT NOT NULL,
-                prompt_hash TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                model TEXT NOT NULL,
-                response_text TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL DEFAULT 0,
-                output_tokens INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                hit_count INTEGER NOT NULL DEFAULT 0
+        with self._lock:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cache_entries (
+                    key TEXT PRIMARY KEY,
+                    agent_name TEXT NOT NULL,
+                    prompt_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    response_text TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    hit_count INTEGER NOT NULL DEFAULT 0
+                )
+                """
             )
-            """
-        )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_name ON cache_entries(agent_name)"
-        )
-        self._conn.commit()
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_name ON cache_entries(agent_name)"
+            )
+            self._conn.commit()
 
     def get(self, agent_name: str, prompt_hash: str, content_hash: str) -> dict | None:
         """Look up a cached response. Returns None on miss."""
         key = _composite_key(agent_name, prompt_hash, content_hash)
-        row = self._conn.execute(
-            "SELECT * FROM cache_entries WHERE key = ?", (key,)
-        ).fetchone()
-        if row is None:
-            return None
-        self._conn.execute(
-            "UPDATE cache_entries SET hit_count = hit_count + 1 WHERE key = ?", (key,)
-        )
-        self._conn.commit()
-        return dict(row)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM cache_entries WHERE key = ?", (key,)
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE cache_entries SET hit_count = hit_count + 1 WHERE key = ?",
+                (key,),
+            )
+            self._conn.commit()
+            return dict(row)
 
     def put(
         self,
@@ -114,40 +123,44 @@ class ExactCache:
     ) -> None:
         """Store a response in the cache."""
         key = _composite_key(agent_name, prompt_hash, content_hash)
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO cache_entries
-                (key, agent_name, prompt_hash, content_hash, model,
-                 response_text, input_tokens, output_tokens, created_at, hit_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-            """,
-            (
-                key,
-                agent_name,
-                prompt_hash,
-                content_hash,
-                model,
-                response_text,
-                input_tokens,
-                output_tokens,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO cache_entries
+                    (key, agent_name, prompt_hash, content_hash, model,
+                     response_text, input_tokens, output_tokens, created_at, hit_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    key,
+                    agent_name,
+                    prompt_hash,
+                    content_hash,
+                    model,
+                    response_text,
+                    input_tokens,
+                    output_tokens,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
 
     def invalidate_agent(self, agent_name: str) -> int:
         """Invalidate all cache entries for an agent. Returns count deleted."""
-        cursor = self._conn.execute(
-            "DELETE FROM cache_entries WHERE agent_name = ?", (agent_name,)
-        )
-        self._conn.commit()
-        return cursor.rowcount
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM cache_entries WHERE agent_name = ?", (agent_name,)
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def stats(self) -> dict:
         """Return cache statistics: total entries, hit counts, size."""
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS n, COALESCE(SUM(hit_count), 0) AS hits FROM cache_entries"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n, "
+                "COALESCE(SUM(hit_count), 0) AS hits FROM cache_entries"
+            ).fetchone()
         size = self.db_path.stat().st_size if self.db_path.exists() else 0
         return {
             "total_entries": int(row["n"]),
@@ -156,4 +169,5 @@ class ExactCache:
         }
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
