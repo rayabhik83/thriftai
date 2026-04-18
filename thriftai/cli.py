@@ -13,7 +13,7 @@ def main() -> None:
         description=(
             "ThriftAI — multi-agent LLM cache, replay, and cost tracking. "
             "Use the Python API: `import thriftai as ta`. "
-            "See https://github.com/abhikray/thriftai for docs."
+            "See https://github.com/rayabhik83/thriftai for docs."
         ),
     )
     parser.add_argument(
