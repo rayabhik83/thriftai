@@ -13,7 +13,6 @@ which covers Anthropic, OpenAI, Google, and others.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
