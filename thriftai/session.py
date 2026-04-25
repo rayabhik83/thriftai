@@ -28,6 +28,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -53,10 +54,36 @@ class SessionConfig:
     cache_dir: Path = Path(".thriftai")
     embedding_model: str | None = None
     semantic_threshold: float = 0.92
+    enabled: bool = True
 
 
 def _new_trace_id() -> str:
     return datetime.now().strftime("run_%Y%m%d_%H%M%S")
+
+
+class _NoOpCache:
+    """Drop-in for ExactCache when ThriftAI is disabled.
+
+    Always misses, never writes, no SQLite handle. The broker's cascade
+    falls through cleanly: every call resolves LIVE, but cost tracking
+    still works because that lives in CostReport, not the cache.
+    """
+    db_path: Path | None = None
+
+    def get(self, agent_name: str, prompt_hash: str, content_hash: str) -> dict | None:
+        return None
+
+    def put(self, **kwargs: Any) -> None:  # noqa: ARG002
+        return None
+
+    def invalidate_agent(self, agent_name: str) -> int:  # noqa: ARG002
+        return 0
+
+    def stats(self) -> dict:
+        return {"total_entries": 0, "total_hits": 0, "db_size_bytes": 0}
+
+    def close(self) -> None:
+        return None
 
 
 class Session:
@@ -67,28 +94,45 @@ class Session:
         cache_dir: str | Path = ".thriftai",
         embedding_model: str | None = None,
         semantic_threshold: float = 0.92,
+        enabled: bool | None = None,
     ):
+        # THRIFTAI_DISABLED=1 is the global kill switch and wins over the kwarg.
+        # Other values (incl. unset) leave the kwarg untouched.
+        if os.environ.get("THRIFTAI_DISABLED") == "1":
+            enabled = False
+        elif enabled is None:
+            enabled = True
+
+        self.enabled = enabled
         self.config = SessionConfig(
             cache_dir=Path(cache_dir),
             embedding_model=embedding_model,
             semantic_threshold=semantic_threshold,
+            enabled=enabled,
         )
-        self.config.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache = ExactCache(self.config.cache_dir)
-        self.trace_store = TraceStore(self.config.cache_dir)
 
-        self.semantic_cache = None
-        if embedding_model is not None:
-            if SemanticCache is None:
-                raise RuntimeError(
-                    "semantic cache requires numpy: "
-                    "pip install 'thriftai[semantic]'"
+        self.semantic_cache: SemanticCache | None = None
+        if self.enabled:
+            self.config.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.cache: ExactCache | _NoOpCache = ExactCache(self.config.cache_dir)
+            self.trace_store: TraceStore | None = TraceStore(self.config.cache_dir)
+            if embedding_model is not None:
+                if SemanticCache is None:
+                    raise RuntimeError(
+                        "semantic cache requires numpy: "
+                        "pip install 'thriftai[semantic]'"
+                    )
+                self.semantic_cache = SemanticCache(
+                    db_path=self.cache.db_path,
+                    embedding_model=embedding_model,
+                    threshold=semantic_threshold,
                 )
-            self.semantic_cache = SemanticCache(
-                db_path=self.cache.db_path,
-                embedding_model=embedding_model,
-                threshold=semantic_threshold,
-            )
+        else:
+            # Disabled: no filesystem touch, no embeddings, no traces.
+            # The broker's cascade still runs; it just always falls through
+            # to LIVE because every cache.get() returns None.
+            self.cache = _NoOpCache()
+            self.trace_store = None
 
         self.broker = Broker(
             cache=self.cache,
@@ -110,7 +154,17 @@ class Session:
         Agents in `live` list go through cache -> live.
         If a live agent's output differs from the trace, downstream agents
         are invalidated and fall through to cache -> live.
+
+        Replay is a development-only feature. With `enabled=False` (or
+        `THRIFTAI_DISABLED=1`) this raises — there are no traces to load.
         """
+        if not self.enabled:
+            raise RuntimeError(
+                "ThriftAI replay is a development-only feature and is "
+                "disabled in this session. Set Session(enabled=True) or "
+                "unset THRIFTAI_DISABLED to use replay."
+            )
+        assert self.trace_store is not None  # narrow for type checkers
         replay_trace = self.trace_store.load(trace_id)
         return ReplayContext(
             session=self,
@@ -134,12 +188,14 @@ class _BaseRun:
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        # Always try to save the trace; don't swallow the exception.
-        try:
-            self.trace.total_cost_usd = self.cost_report.total_cost
-            self.session.trace_store.record(self.trace)
-        except Exception as e:  # pragma: no cover — defensive
-            log.warning("failed to record trace %s: %s", self.trace_id, e)
+        # Skip trace recording when disabled — there's no replay path
+        # so a trace would just bloat disk for no benefit.
+        if self.session.enabled and self.session.trace_store is not None:
+            try:
+                self.trace.total_cost_usd = self.cost_report.total_cost
+                self.session.trace_store.record(self.trace)
+            except Exception as e:  # pragma: no cover — defensive
+                log.warning("failed to record trace %s: %s", self.trace_id, e)
         if exc_type is None:
             log.info("\n%s", self.cost_report.summary())
         return False
