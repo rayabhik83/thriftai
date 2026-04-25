@@ -79,6 +79,48 @@ ThriftAI uses a **decision cascade** for every LLM call:
 - **Provider-agnostic**: Works with any provider via LiteLLM (Anthropic, OpenAI, Google, etc.)
 - **Zero lock-in**: Decorator/wrapper pattern — keep your existing pipeline code
 
+## Should I use ThriftAI in production?
+
+Short answer: **probably yes, with caveats.** Use it where inputs recur, disable it where every call is unique.
+
+### When it pays off
+
+- **Batch / scheduled agent pipelines.** Nightly summarization, weekly research bots, daily reports — same inputs recur. Cache hit rates often >50%.
+- **Eval and benchmark loops.** Re-running the same prompts across models. Hit rate ≈100% after the first pass.
+- **RAG with long-tail recurrence.** Many users asking the same questions of your docs.
+
+### When it's a net loss
+
+- **Interactive user-facing chat** where every prompt is unique. Cache hit rate ≈0; you pay storage + lookup overhead for nothing.
+- **Cheap models with cheap embeddings.** Below a per-call cost threshold, semantic caching costs more than it saves. A `STRESS_REPORT.md` with the per-model break-even table is on the way.
+- **Hard p99 SLAs.** SQLite writes add 1–2 ms; measure first.
+
+### Replay is dev-only
+
+`Session.replay()` exists for prompt iteration during development. It has no production use; calling it with `enabled=False` raises.
+
+### Kill switch
+
+Two equivalent ways to disable cache + replay (cost tracking stays on):
+
+```python
+session = Session(enabled=False)             # per-session
+```
+
+```bash
+THRIFTAI_DISABLED=1 python my_app.py         # global, wins over the kwarg
+```
+
+When disabled, `Session` is a thin pass-through to LiteLLM. No filesystem writes, no embedding calls, no traces. `CostReport` still summarizes per-agent spend.
+
+### Open production gaps
+
+Be transparent about what's not solved yet:
+
+- **No TTL** on cached responses. Invalidate manually with `cache.invalidate_agent(name)` after a model upgrade or data refresh.
+- **Single-instance cache.** Each replica has its own SQLite. Use a shared volume, or wait for the planned Redis backend.
+- **Response text stored unencrypted.** If agent inputs are sensitive, encrypt the cache directory at rest or run with `enabled=False` until the planned PII-redaction layer lands.
+
 ## License
 
 MIT
