@@ -46,3 +46,7 @@ target-version = "py310"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "live: requires a real LLM/embedding API key (set THRIFTAI_LIVE_TEST=1 to run)",
+    "slow: long-running tests; opt in via `pytest -m slow`",
+]
