@@ -31,6 +31,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
+    "hypothesis>=6",
 ]
 semantic = [
     "numpy>=1.24",
