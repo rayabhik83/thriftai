@@ -56,6 +56,17 @@ def _composite_key(agent_name: str, prompt_hash: str, content_hash: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+# Bump whenever the on-disk schema (cache_entries OR semantic_cache) changes
+# in a way that can't be applied with `CREATE ... IF NOT EXISTS`. Stored on
+# the SQLite file itself via `PRAGMA user_version`. Semantic cache shares the
+# same file, so the version number governs both tables.
+SCHEMA_VERSION = 1
+
+
+class SchemaVersionError(RuntimeError):
+    """Raised when the on-disk cache schema version doesn't match the library."""
+
+
 class ExactCache:
     """SQLite-backed exact-match response cache."""
 
@@ -70,7 +81,29 @@ class ExactCache:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._check_or_set_schema_version()
         self._init_schema()
+
+    def _check_or_set_schema_version(self) -> None:
+        """Use PRAGMA user_version to detect on-disk schema mismatch.
+
+        Fresh DB → user_version is 0 → we set it to SCHEMA_VERSION.
+        Existing DB at the right version → no-op.
+        Existing DB at a different version → raise so the user knows to
+        delete the cache directory rather than silently serving garbage.
+        """
+        with self._lock:
+            current = self._conn.execute("PRAGMA user_version").fetchone()[0]
+            if current == 0:
+                self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self._conn.commit()
+            elif current != SCHEMA_VERSION:
+                raise SchemaVersionError(
+                    f"thriftai cache at {self.db_path} is on schema version "
+                    f"{current}, but this thriftai expects version {SCHEMA_VERSION}. "
+                    f"Delete the cache directory ({self.cache_dir}) to rebuild, "
+                    f"or pin to a thriftai version compatible with schema {current}."
+                )
 
     def _init_schema(self) -> None:
         with self._lock:
