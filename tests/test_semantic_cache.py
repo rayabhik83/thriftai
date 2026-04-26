@@ -75,6 +75,9 @@ class TestSemanticCache:
             db_path=tmp_path / "cache.db",
             embedding_model="text-embedding-3-small",
             threshold=threshold,
+            # These tests use short queries; opt out of the cost-control
+            # min-length skip so we exercise the threshold logic directly.
+            min_query_chars=0,
         )
 
     def test_hit_above_threshold(self, tmp_path):
@@ -196,6 +199,7 @@ class TestBrokerCascadeWithSemantic:
             db_path=exact.db_path,
             embedding_model="text-embedding-3-small",
             threshold=threshold,
+            min_query_chars=0,  # short test queries; opt out of cost-control skip
         )
         broker = Broker(
             cache=exact, trace_store=trace_store, cost_tracker=None,
