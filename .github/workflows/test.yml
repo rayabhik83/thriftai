@@ -39,4 +39,7 @@ jobs:
       - name: Run tests
         # `slow` tests (tests/test_scale.py) are opt-in only — they make
         # timing assertions that flake on shared CI runners.
-        run: pytest -v -m "not slow"
+        # Coverage floor 90% is conservative (current is ~95%); raise as
+        # untested-edge work like the CLI stub and live provider path
+        # gets covered by future test tracks.
+        run: pytest -v -m "not slow" --cov=thriftai --cov-report=term-missing --cov-fail-under=90
