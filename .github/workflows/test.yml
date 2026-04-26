@@ -37,4 +37,6 @@ jobs:
         run: ruff check .
 
       - name: Run tests
-        run: pytest -v
+        # `slow` tests (tests/test_scale.py) are opt-in only — they make
+        # timing assertions that flake on shared CI runners.
+        run: pytest -v -m "not slow"
