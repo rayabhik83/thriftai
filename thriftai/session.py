@@ -54,6 +54,8 @@ class SessionConfig:
     cache_dir: Path = Path(".thriftai")
     embedding_model: str | None = None
     semantic_threshold: float = 0.92
+    semantic_min_chars: int = 100
+    semantic_bucket_size: int = 1000
     enabled: bool = True
 
 
@@ -94,6 +96,8 @@ class Session:
         cache_dir: str | Path = ".thriftai",
         embedding_model: str | None = None,
         semantic_threshold: float = 0.92,
+        semantic_min_chars: int = 100,
+        semantic_bucket_size: int = 1000,
         enabled: bool | None = None,
     ):
         # THRIFTAI_DISABLED=1 is the global kill switch and wins over the kwarg.
@@ -108,6 +112,8 @@ class Session:
             cache_dir=Path(cache_dir),
             embedding_model=embedding_model,
             semantic_threshold=semantic_threshold,
+            semantic_min_chars=semantic_min_chars,
+            semantic_bucket_size=semantic_bucket_size,
             enabled=enabled,
         )
 
@@ -126,6 +132,8 @@ class Session:
                     db_path=self.cache.db_path,
                     embedding_model=embedding_model,
                     threshold=semantic_threshold,
+                    min_query_chars=semantic_min_chars,
+                    bucket_size=semantic_bucket_size,
                 )
         else:
             # Disabled: no filesystem touch, no embeddings, no traces.

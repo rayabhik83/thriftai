@@ -123,6 +123,7 @@ def test_pair_similarity_live(
         db_path=tmp_path_factory.mktemp("sem") / "cache.db",
         embedding_model=EMBED_MODEL,
         threshold=0.92,
+        min_query_chars=0,  # adversarial pairs include short queries; we want to embed them all
     )
     va = cache.embed([{"role": "user", "content": query_a}])
     vb = cache.embed([{"role": "user", "content": query_b}])
@@ -154,6 +155,7 @@ def test_threshold_logic_is_wired_correctly(tmp_path):
         db_path=tmp_path / "cache.db",
         embedding_model="mock",
         threshold=0.92,
+        min_query_chars=0,  # 1-char test inputs would otherwise be skipped
     )
 
     base = np.ones(8, dtype=np.float32)

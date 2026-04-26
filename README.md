@@ -92,7 +92,7 @@ Short answer: **probably yes, with caveats.** Use it where inputs recur, disable
 ### When it's a net loss
 
 - **Interactive user-facing chat** where every prompt is unique. Cache hit rate ≈0; you pay storage + lookup overhead for nothing.
-- **Cheap models with cheap embeddings.** Below a per-call cost threshold, semantic caching costs more than it saves. A `STRESS_REPORT.md` with the per-model break-even table is on the way.
+- **Cheap models with cheap embeddings.** Below a per-call cost threshold, semantic caching costs more than it saves. See [STRESS_REPORT.md](./STRESS_REPORT.md) for the per-model break-even table and the wrong-hit risk per query category.
 - **Hard p99 SLAs.** SQLite writes add 1–2 ms; measure first.
 
 ### Replay is dev-only

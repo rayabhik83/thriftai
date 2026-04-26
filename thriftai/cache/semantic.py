@@ -66,12 +66,31 @@ class SemanticCache:
         db_path: Path,
         embedding_model: str,
         threshold: float = 0.92,
+        min_query_chars: int = 100,
+        bucket_size: int = 1000,
     ):
+        """
+        Args:
+            min_query_chars: Skip the embedding round-trip entirely when the
+                non-system text is shorter than this. Below ~100 chars the
+                embedding API call itself can cost more than a tiny LLM call,
+                so caching is a net loss. Set to 0 to disable the skip.
+            bucket_size: Cap entries per (agent_name, prompt_hash) at this
+                count. When exceeded on `put()`, the oldest entries are
+                evicted (FIFO by created_at). Prevents linear similarity
+                scans from going quadratic in long-running sessions.
+        """
         if not 0.0 <= threshold <= 1.0:
             raise ValueError(f"threshold must be in [0, 1], got {threshold}")
+        if min_query_chars < 0:
+            raise ValueError(f"min_query_chars must be >= 0, got {min_query_chars}")
+        if bucket_size < 1:
+            raise ValueError(f"bucket_size must be >= 1, got {bucket_size}")
         self.db_path = Path(db_path)
         self.embedding_model = embedding_model
         self.threshold = threshold
+        self.min_query_chars = min_query_chars
+        self.bucket_size = bucket_size
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         # See cache/__init__.py for the rationale — sqlite3 needs serialized
         # access per-connection. The embedding network call is explicitly
@@ -159,7 +178,20 @@ class SemanticCache:
 
         If `precomputed_embedding` is given, we skip re-embedding (used by
         the broker when it wants to reuse the same vector for get + put).
+        Returns None without embedding when the query is shorter than
+        `min_query_chars` — saves the embedding cost on tiny prompts where
+        the LLM call is cheap enough that caching is a net loss.
         """
+        if (
+            precomputed_embedding is None
+            and self.min_query_chars > 0
+            and len(_messages_to_text(messages)) < self.min_query_chars
+        ):
+            log.debug(
+                "semantic.get: skip (text shorter than min_query_chars=%d)",
+                self.min_query_chars,
+            )
+            return None
         query = (
             precomputed_embedding
             if precomputed_embedding is not None
@@ -225,8 +257,24 @@ class SemanticCache:
         """Store a response with its embedding.
 
         Skipped if this exact (agent_name, prompt_hash, content_hash) is
-        already present — the exact cache handles those lookups.
+        already present — the exact cache handles those lookups. Also
+        skipped when the query text is shorter than `min_query_chars`
+        (avoids paying for an embedding that wouldn't pay back).
+
+        After insert, the bucket is pruned to `bucket_size` entries by
+        dropping the oldest by `created_at` (FIFO).
         """
+        if (
+            precomputed_embedding is None
+            and self.min_query_chars > 0
+            and len(_messages_to_text(messages)) < self.min_query_chars
+        ):
+            log.debug(
+                "semantic.put: skip (text shorter than min_query_chars=%d)",
+                self.min_query_chars,
+            )
+            return
+
         with self._lock:
             existing = self._conn.execute(
                 """
@@ -265,6 +313,23 @@ class SemanticCache:
                     input_tokens,
                     output_tokens,
                 ),
+            )
+            # FIFO eviction: keep at most bucket_size entries per (agent, prompt).
+            # SQLite computes the bucket count and drops the oldest in one round-trip.
+            self._conn.execute(
+                """
+                DELETE FROM semantic_cache
+                 WHERE id IN (
+                    SELECT id FROM semantic_cache
+                     WHERE agent_name = ? AND prompt_hash = ?
+                     ORDER BY created_at ASC, id ASC
+                     LIMIT MAX(0, (
+                        SELECT COUNT(*) FROM semantic_cache
+                         WHERE agent_name = ? AND prompt_hash = ?
+                     ) - ?)
+                 )
+                """,
+                (agent_name, prompt_hash, agent_name, prompt_hash, self.bucket_size),
             )
             self._conn.commit()
 
