@@ -87,20 +87,44 @@ class TraceStore:
         path.write_text(json.dumps(payload, indent=2))
 
     def load(self, trace_id: str) -> Trace:
-        """Load a trace from disk."""
+        """Load a trace from disk.
+
+        Raises:
+            FileNotFoundError: If the trace file doesn't exist.
+            ValueError: If the file exists but isn't valid trace JSON
+                (truncated, hand-edited, key missing, etc.). The original
+                JSONDecodeError or KeyError is chained for debugging.
+        """
         path = self._path(trace_id)
         if not path.exists():
             raise FileNotFoundError(f"Trace not found: {trace_id} at {path}")
-        data = json.loads(path.read_text())
-        entries = [TraceEntry(**e) for e in data.get("entries", [])]
-        return Trace(
-            trace_id=data["trace_id"],
-            entries=entries,
-            total_cost_usd=data.get("total_cost_usd", 0.0),
-            created_at=data.get(
-                "created_at", datetime.now(timezone.utc).isoformat()
-            ),
-        )
+
+        raw = path.read_text()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Trace file at {path} is not valid JSON (likely truncated "
+                f"by an interrupted run, or hand-edited): {e.msg} at line "
+                f"{e.lineno} col {e.colno}"
+            ) from e
+
+        try:
+            entries = [TraceEntry(**e) for e in data.get("entries", [])]
+            return Trace(
+                trace_id=data["trace_id"],
+                entries=entries,
+                total_cost_usd=data.get("total_cost_usd", 0.0),
+                created_at=data.get(
+                    "created_at", datetime.now(timezone.utc).isoformat()
+                ),
+            )
+        except (KeyError, TypeError) as e:
+            raise ValueError(
+                f"Trace file at {path} is missing required fields or has the "
+                f"wrong shape: {e}. Delete the file or restore it from a "
+                f"known-good copy."
+            ) from e
 
     def list_traces(self) -> list[str]:
         """List all available trace IDs."""
