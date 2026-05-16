@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "thriftai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Make multi-agent LLM development cheaper. Cache, replay, and tier — without changing your pipeline code."
 readme = "README.md"
 license = "MIT"
@@ -40,6 +40,26 @@ semantic = [
 
 [project.scripts]
 thriftai = "thriftai.cli:main"
+
+[tool.hatch.build.targets.sdist]
+# Keep developer / test caches out of the published source distribution.
+# Hatchling defaults pull in everything not gitignored, but hypothesis and
+# others self-gitignore *inside* their cache dirs, so we exclude explicitly.
+exclude = [
+    ".hypothesis",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".coverage",
+    "htmlcov",
+    "venv",
+    ".thriftai",
+    "examples/.thriftai-demo",
+    "CLAUDE_CODE_PROMPT.md",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["thriftai"]
 
 [tool.ruff]
 line-length = 100
