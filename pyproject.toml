@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "thriftai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Make multi-agent LLM development cheaper. Cache, replay, and tier — without changing your pipeline code."
 readme = "README.md"
 license = "MIT"
