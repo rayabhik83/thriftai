@@ -89,7 +89,49 @@ class _NoOpCache:
 
 
 class Session:
-    """Main entry point. Create one per project/pipeline."""
+    """The main entry point for ThriftAI.
+
+    A `Session` owns the on-disk cache and trace store, plus the broker that
+    routes every LLM call through the replay → cache → live cascade. Create
+    one per project or pipeline; reuse it across runs so they share cache and
+    trace history.
+
+    The session is also the kill switch. Setting `enabled=False` (or the
+    environment variable `THRIFTAI_DISABLED=1`) turns the session into a thin
+    pass-through to LiteLLM: no filesystem writes, no embedding calls, no
+    traces. Cost tracking still works.
+
+    Args:
+        cache_dir: Directory for the SQLite cache, semantic embeddings, and
+            trace JSON files. Created if it doesn't exist.
+        embedding_model: LiteLLM model name for semantic-cache embeddings
+            (e.g. `"text-embedding-3-small"`). Pass `None` to disable semantic
+            cache entirely — exact-match cache and replay still work.
+        semantic_threshold: Cosine-similarity floor for a semantic-cache hit
+            (0.0–1.0). Higher is stricter.
+        semantic_min_chars: Minimum query length before semantic lookup runs.
+            Below this, semantic cache is skipped and the call falls through
+            to live. Guards against cheap-query, cheap-model break-even loss.
+        semantic_bucket_size: Max number of cached entries to scan per
+            similarity comparison. Caps lookup latency on large caches.
+        enabled: Master switch. `False` disables cache + replay (cost
+            tracking stays on). `None` defers to `THRIFTAI_DISABLED`. When
+            both are set, the env var wins.
+
+    Example:
+        ```python
+        import thriftai as ta
+
+        session = ta.Session(cache_dir="./.thriftai")
+
+        with session.run() as run:
+            result = run.completion(
+                messages=[{"role": "user", "content": "hi"}],
+                model="anthropic/claude-sonnet-4-20250514",
+            )
+            print(run.cost_report.summary())
+        ```
+    """
 
     def __init__(
         self,
@@ -150,21 +192,65 @@ class Session:
         )
 
     def run(self, trace_id: str | None = None) -> "RunContext":
-        """Start a normal run. All calls go live, responses are cached and traced."""
+        """Start a normal (live) run.
+
+        Every `completion()` inside the context routes through the broker:
+        cache hits short-circuit, cache misses go live and are recorded into
+        the cache and trace. The trace is written on context exit.
+
+        Args:
+            trace_id: Identifier for the new trace. Defaults to a
+                timestamped ID like `run_20260516_154523`.
+
+        Returns:
+            A `RunContext` to use as a context manager.
+
+        Example:
+            ```python
+            with session.run() as run:
+                out = run.completion(messages=[...], model="...")
+                print(run.trace_id)
+            ```
+        """
         return RunContext(session=self, trace_id=trace_id or _new_trace_id())
 
     def replay(
         self, trace_id: str, live: list[str] | None = None
     ) -> "ReplayContext":
-        """Replay a previous run.
+        """Replay a previous run, sending only selected agents live.
 
-        Agents NOT in `live` list are served from trace.
-        Agents in `live` list go through cache -> live.
-        If a live agent's output differs from the trace, downstream agents
-        are invalidated and fall through to cache -> live.
+        Agents listed in `live` go through the normal cache → live cascade.
+        Every other agent's call is served from the recorded trace.
+
+        If a live agent's output differs from what was recorded in the trace,
+        all of its transitive dependents are invalidated for the rest of the
+        replay: they skip the replay path and fall through to cache → live.
+        This is what makes selective replay safe across prompt iteration.
 
         Replay is a development-only feature. With `enabled=False` (or
-        `THRIFTAI_DISABLED=1`) this raises — there are no traces to load.
+        `THRIFTAI_DISABLED=1`) this raises — disabled sessions don't write
+        traces, so there's nothing to replay from.
+
+        Args:
+            trace_id: ID of a previously-recorded trace to replay from.
+            live: Agent names that should re-execute live. Omit or pass an
+                empty list to replay everything from the trace (a pure
+                no-cost re-run).
+
+        Returns:
+            A `ReplayContext` to use as a context manager.
+
+        Raises:
+            RuntimeError: If the session is disabled.
+            FileNotFoundError: If `trace_id` doesn't exist in the trace store.
+            ValueError: If the trace file is malformed.
+
+        Example:
+            ```python
+            with session.replay(trace_id="run_043", live=["writer"]) as run:
+                out = run.completion(messages=[...], model="...")
+                print(run.cost_report.summary())
+            ```
         """
         if not self.enabled:
             raise RuntimeError(
@@ -242,10 +328,34 @@ class _BaseRun:
 
 
 class RunContext(_BaseRun):
-    """Context manager for a normal (live) run."""
+    """Context manager returned by [`Session.run`][thriftai.session.Session.run].
+
+    Exposes [`completion()`][thriftai.session.RunContext.completion] for the
+    decorated agent body to call, and `cost_report` for the per-agent spend
+    summary once the run completes.
+
+    Attributes:
+        trace_id: The trace ID assigned to this run.
+        cost_report: A [`CostReport`][thriftai.cost.CostReport] populated as
+            the run executes.
+    """
 
     def completion(self, messages: list[dict], model: str, **kwargs: Any) -> str:
-        """Route an LLM call through the broker."""
+        """Route an LLM call through the broker.
+
+        Resolution order: exact cache → semantic cache (if enabled) → live.
+        The call is attributed to whichever `@agent` is currently executing
+        on the thread; if none, it's recorded under the name `"anonymous"`.
+
+        Args:
+            messages: OpenAI-style chat messages.
+            model: LiteLLM-compatible model identifier
+                (e.g. `"anthropic/claude-sonnet-4-20250514"`).
+            **kwargs: Forwarded to LiteLLM (temperature, max_tokens, etc.).
+
+        Returns:
+            The model response text.
+        """
         agent_name = get_current_agent() or "anonymous"
         result = self.session.broker.route(
             messages=messages,
@@ -258,7 +368,22 @@ class RunContext(_BaseRun):
 
 
 class ReplayContext(_BaseRun):
-    """Context manager for a replay run."""
+    """Context manager returned by [`Session.replay`][thriftai.session.Session.replay].
+
+    Like [`RunContext`][thriftai.session.RunContext], but `completion()`
+    checks the replay trace first and tracks downstream invalidation when a
+    live agent diverges from the recorded output.
+
+    Attributes:
+        trace_id: The *new* trace ID assigned to this replay (not the
+            source trace's ID).
+        replay_trace: The loaded source trace being replayed from.
+        live_agents: Names of agents that should re-execute live.
+        invalidated_agents: Agents whose dependencies have changed during
+            this replay and so will skip the replay path.
+        cost_report: A [`CostReport`][thriftai.cost.CostReport] tracking
+            real spend plus what each replayed call would have cost live.
+    """
 
     def __init__(
         self,
@@ -273,7 +398,29 @@ class ReplayContext(_BaseRun):
         self.invalidated_agents: set[str] = set()
 
     def completion(self, messages: list[dict], model: str, **kwargs: Any) -> str:
-        """Route through broker with replay + downstream invalidation."""
+        """Route an LLM call through the broker, with replay support.
+
+        Resolution order:
+
+        1. If the current agent is **not** in `live_agents` and **not** in
+           `invalidated_agents`, the recorded response is returned from the
+           trace (`replay` resolution, $0 cost).
+        2. Otherwise, falls through to exact cache → semantic cache → live.
+
+        After step 2 completes, if the produced text differs from the
+        recorded output, every transitive dependent of this agent is added
+        to `invalidated_agents` so they cannot serve from the now-stale
+        trace.
+
+        Args:
+            messages: OpenAI-style chat messages.
+            model: LiteLLM-compatible model identifier.
+            **kwargs: Forwarded to LiteLLM (temperature, max_tokens, etc.).
+
+        Returns:
+            The response text — from trace, cache, or live, depending on
+            resolution.
+        """
         agent_name = get_current_agent() or "anonymous"
 
         result = self.session.broker.route(

@@ -20,6 +20,9 @@ __pycache__/
 dist/
 build/
 
+# MkDocs build output
+site/
+
 # Test + tooling caches
 .pytest_cache/
 .ruff_cache/
