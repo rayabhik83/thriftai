@@ -14,6 +14,8 @@
 
 ::: thriftai.cost.CostReport
 
+::: thriftai.cost.AgentCostEntry
+
 ## Run contexts
 
 ::: thriftai.session.RunContext
