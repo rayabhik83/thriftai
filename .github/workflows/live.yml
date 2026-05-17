@@ -1,0 +1,37 @@
+name: live-smoke
+
+# Daily run at 09:00 UTC plus a manual trigger from the Actions UI.
+# Catches provider response-shape drift, LiteLLM version bumps, and
+# pricing-table desync — anything mocks would hide.
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+# Don't run on forks: they won't have the secret and would just fail noisily.
+jobs:
+  smoke:
+    if: github.repository == 'rayabhik83/thriftai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,semantic]"
+
+      - name: Run live smoke test
+        env:
+          THRIFTAI_LIVE_TEST: '1'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pytest -v -m live tests/test_live_smoke.py
