@@ -1,0 +1,27 @@
+workload: support_triage
+
+description: |
+  Three-agent pipeline (classifier, retriever, drafter) processing
+  customer-support tickets. Ticket corpus has intentional repetition
+  across clusters (paraphrastic variants of the same complaint)
+  to exercise the semantic cache.
+
+data_file: benchmarks/data/support_tickets.jsonl
+
+# Default model used for under-test agents when --model isn't passed.
+default_model: claude-haiku-4-5
+
+# Conditions to run for this workload. The runner iterates over these
+# in order. Cache directories are scoped per (condition, seed).
+conditions:
+  - baseline
+  - thriftai_cold
+  - thriftai_warm
+
+# ThriftAI session config used by thriftai_* conditions. Per
+# Session.__init__ in thriftai/session.py.
+thriftai_session:
+  embedding_model: voyage-3
+  semantic_threshold: 0.92
+  semantic_min_chars: 100
+  semantic_bucket_size: 1000
