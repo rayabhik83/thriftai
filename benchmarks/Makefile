@@ -14,13 +14,16 @@
 PY ?= python3
 REPO_ROOT := $(shell git rev-parse --show-toplevel)
 
-.PHONY: help install smoke bench report rederive clean
+.PHONY: help install test smoke bench report rederive clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ — /'
 
 install: ## install bench extras
 	cd $(REPO_ROOT) && $(PY) -m pip install -e ".[bench]"
+
+test: ## run the bench harness tests (no API calls)
+	cd $(REPO_ROOT) && $(PY) -m pytest benchmarks/tests/ -q
 
 smoke: ## N=2, support_triage, Haiku only
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.run \
