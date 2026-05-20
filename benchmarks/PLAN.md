@@ -1,6 +1,6 @@
 # ThriftAI Benchmark Suite — Build Plan
 
-> Status: **draft, pending review**. No benchmark code is written until this document is approved.
+> Status: **approved (2026-05-19)**. Scaffolding work in progress; see the "Build order" section for current step.
 
 ## What this is
 
@@ -116,7 +116,7 @@ All workloads use `@ta.agent`-decorated functions so they exercise the real publ
 
 **Pipeline:** ticket → `classifier` → `retriever` (cosine over the ticket corpus) → `drafter`.
 
-**Inputs:** 50 synthesized tickets across ~10 "recurring complaint" clusters with paraphrastic variants. Repetition is the point — exact and semantic caches should both shine. Dataset is committed verbatim; the synthesis script is committed but the output is canonical.
+**Inputs:** 50 tickets synthesized by `claude-sonnet-4-6` from a written rubric covering ~10 "recurring complaint" clusters with paraphrastic variants. Repetition is the point — exact and semantic caches should both shine. Both the synthesis script (`data/support_tickets_gen.py`) **and** its output (`data/support_tickets.jsonl`) are committed; the JSONL is the canonical input for benchmark runs and the script is only re-run if we want to regenerate.
 
 **Quality rubric (Opus, 1–5):** classification correctness, retrieval relevance, draft helpfulness. Averaged per ticket.
 
@@ -136,7 +136,7 @@ All workloads use `@ta.agent`-decorated functions so they exercise the real publ
 
 **Pipeline:** diff → `reviewer` → `proposer` → `self_critic`.
 
-**Inputs:** 20 fixed PR diffs. Sourcing is an open question (see below).
+**Inputs:** 20 fixed code diffs sampled from `bigcode/the-stack-smol-xs` (Hugging Face), filtered to functions of a tractable size. Sampling script (`data/code_review_sample.py`) and the resulting JSONL are both committed. The JSONL is canonical; the sampling script is for reproducibility / regeneration only.
 
 **Quality:** LLM judge for review quality + (where ground-truth fixes exist) exact-match on the fix region.
 
@@ -244,17 +244,13 @@ Each step is a separate commit. Each gates on the previous step being green and 
 12. **Clean-clone smoke test** — `git clone /tmp/x && cd /tmp/x && make smoke` works without manual steps beyond the API key.
 13. **Final REPORT.md** committed. Open PR.
 
-## Open questions to resolve before step 5
+## Decisions resolved during review
 
-1. **Code-review dataset source.** Hand-curate 20 PR diffs from MIT-licensed public OSS repos and commit verbatim, or sample from an existing labeled dataset (e.g. `bigcode/the-stack-smol-xs`)? Hand-curated is more controlled; sampled is more defensible.
-
-2. **Support-triage corpus.** Use Sonnet to synthesize the 50 tickets from a written rubric, commit the output as canonical (synthesis script committed too)? Or hand-author?
-
-3. **`benchmarks/results/` git policy.** Proposal: commit `REPORT.md` and `plots/*.png` (so GitHub renders the report inline); gitignore everything under `raw/`. Confirm.
-
-4. **Separate Anthropic key for judge calls?** Add `ANTHROPIC_JUDGE_API_KEY` so judge spend shows up separately, or use the single key?
-
-5. **CI integration.** `make smoke` on every PR via GitHub Actions (catches regressions, costs money, adds secret management) vs manual-only (cheaper, regressions caught later). Recommendation: manual-only for now; add CI in a follow-up.
+1. **Code-review diffs** — sampled from `bigcode/the-stack-smol-xs`; sampling script and resulting JSONL both committed.
+2. **Support-triage corpus** — synthesized by `claude-sonnet-4-6`; synthesis script and resulting JSONL both committed.
+3. **`benchmarks/results/` git policy** — commit `REPORT.md` and `plots/*.png`; gitignore `raw/`.
+4. **API keys** — single `ANTHROPIC_API_KEY` for under-test and judge calls. Judge spend is itemized in the report by model, which is sufficient for accounting.
+5. **CI integration** — `.github/workflows/bench-smoke.yml` runs `make smoke` on every PR. Requires `ANTHROPIC_API_KEY` to be set as a GitHub repo secret. Workflow skips with a clear message when the secret isn't available (so forked-PR CI doesn't try to use a key it can't see).
 
 ## Verification (criteria for the final PR, not for this plan)
 

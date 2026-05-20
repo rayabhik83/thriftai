@@ -23,6 +23,11 @@ build/
 # MkDocs build output
 site/
 
+# Benchmark artifacts (raw logs, judge cache, fetched datasets)
+benchmarks/results/raw/
+benchmarks/cache/
+benchmarks/.env
+
 # Test + tooling caches
 .pytest_cache/
 .ruff_cache/

@@ -1,0 +1,43 @@
+# ThriftAI Benchmark Suite
+#
+# Targets:
+#   make install   — pip install -e ".[bench]" (from repo root)
+#   make smoke     — N=2, support_triage only, Haiku only (~$0.10 of API)
+#   make bench     — N=5, all workloads, Haiku + Sonnet (real money)
+#   make report    — regenerate REPORT.md from existing raw logs (free)
+#   make rederive  — recompute $ figures from raw logs (sanity check)
+#   make clean     — remove raw logs and bench cache (does NOT delete REPORT.md)
+#
+# Requires Python 3.11+ for the benchmark suite.
+# Requires ANTHROPIC_API_KEY in benchmarks/.env (see .env.example).
+
+PY ?= python3
+REPO_ROOT := $(shell git rev-parse --show-toplevel)
+
+.PHONY: help install smoke bench report rederive clean
+
+help:
+	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ — /'
+
+install: ## install bench extras
+	cd $(REPO_ROOT) && $(PY) -m pip install -e ".[bench]"
+
+smoke: ## N=2, support_triage, Haiku only
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.run \
+		--workload support_triage \
+		--n 2 \
+		--model claude-haiku-4-5
+
+bench: ## N=5, all workloads, Haiku + Sonnet
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.run \
+		--workload all \
+		--n 5
+
+report: ## regenerate REPORT.md from existing raw logs (free)
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.report
+
+rederive: ## verify dollar figures from raw logs + pricing.yaml
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.rederive
+
+clean: ## clear raw logs and bench cache (keeps REPORT.md and plots/)
+	rm -rf $(REPO_ROOT)/benchmarks/results/raw $(REPO_ROOT)/benchmarks/cache
