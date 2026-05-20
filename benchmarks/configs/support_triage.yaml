@@ -20,8 +20,16 @@ conditions:
 
 # ThriftAI session config used by thriftai_* conditions. Per
 # Session.__init__ in thriftai/session.py.
+#
+# embedding_model defaults to null = semantic cache OFF. This keeps the
+# benchmark Anthropic-only (no Voyage/OpenAI/Together key needed). The
+# benchmark measures the exact cache + replay paths only — see
+# README.md "What does and does not ship" + this null caveat.
+#
+# To enable semantic-cache measurement: set embedding_model to a
+# LiteLLM-compatible embedding model and provide its API key in .env.
 thriftai_session:
-  embedding_model: voyage-3
+  embedding_model: null
   semantic_threshold: 0.92
   semantic_min_chars: 100
   semantic_bucket_size: 1000

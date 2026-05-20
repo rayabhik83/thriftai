@@ -67,6 +67,12 @@ LLM-as-judge using `claude-opus-4-7` against a fixed rubric per workload. Judge 
 
 This release benchmarks only Anthropic models. The audience-relevant point — that cost reduction generalizes — is shown via three Claude models spanning two orders of magnitude in price (Haiku → Sonnet → Opus). The `pricing.yaml` and `configs/*.yaml` files contain commented-out OpenAI / Together entries; swapping providers is a one-line config change because ThriftAI routes everything through LiteLLM (`thriftai/providers/__init__.py:call_litellm`). Reproducing these numbers against another provider is left as a one-key reader exercise.
 
+### Semantic-cache caveat
+
+ThriftAI's semantic cache is **opt-in** via `Session(embedding_model=...)` and requires an embedding-model API key (Voyage, OpenAI, or a local Ollama instance). Since this release of the benchmark uses Anthropic-only keys, **`embedding_model` defaults to `null`** in the shipped workload configs and the semantic cache is **not exercised** in the published numbers. We measure the exact-match cache + replay paths only.
+
+Readers who want semantic-cache numbers can set `thriftai_session.embedding_model` in any `configs/<workload>.yaml`, add the corresponding API key to `.env`, and re-run.
+
 ### What does and does not ship in ThriftAI 0.1.1
 
 | Feature | In 0.1.1? | Benchmarked here? |
