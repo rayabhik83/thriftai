@@ -42,6 +42,9 @@ report: ## regenerate REPORT.md from existing raw logs (free)
 rederive: ## verify dollar figures from raw logs + pricing.yaml
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.rederive
 
+judge: ## score every artifacts.jsonl with Opus and write judge_scores.jsonl
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.judge_runner
+
 clean: ## clear raw logs and bench cache (keeps REPORT.md and plots/)
 	rm -rf $(REPO_ROOT)/benchmarks/results/raw $(REPO_ROOT)/benchmarks/cache
 

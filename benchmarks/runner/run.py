@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,6 +143,14 @@ def _run_one_cell(
         finally:
             instrumentation.set_context(None)
         artifacts.append(result)
+
+    # Persist artifacts alongside the JSONL call log so the judge can
+    # score them later from disk (without re-running the workload).
+    artifacts_path = RAW_DIR / run_id / "artifacts.jsonl"
+    artifacts_path.parent.mkdir(parents=True, exist_ok=True)
+    with artifacts_path.open("w") as f:
+        for art in artifacts:
+            f.write(json.dumps(art) + "\n")
 
     return {
         "run_id": run_id,
