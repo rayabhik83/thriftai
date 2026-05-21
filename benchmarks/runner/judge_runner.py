@@ -31,7 +31,8 @@ RAW_DIR = BENCH_DIR / "results" / "raw"
 
 
 _RUN_ID_RE = re.compile(
-    r"\d{8}_\d{6}_(?P<workload>[a-z_]+)_(?P<condition>[a-z_]+)_"
+    r"\d{8}_\d{6}_(?P<workload>[a-z_]+?)_"
+    r"(?P<condition>baseline|thriftai_cold|thriftai_warm|thriftai_replay)_"
     r"(?P<model>[a-z0-9\-]+)_seed(?P<seed>\d+)"
 )
 

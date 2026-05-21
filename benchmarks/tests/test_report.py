@@ -41,6 +41,7 @@ def test_render_empty_has_section_headers():
     assert "## Headline" in out
     assert "## Methodology" in out
     assert "_no data yet_" in out
+    assert "Quality" in out  # new column appears in the empty table too
 
 
 def test_load_calls_handles_missing_directory(tmp_path: Path):
@@ -125,3 +126,44 @@ def test_main_writes_file_when_no_data(tmp_path: Path, monkeypatch):
     assert (tmp_path / "REPORT.md").exists()
     content = (tmp_path / "REPORT.md").read_text()
     assert "ThriftAI Benchmark Results" in content
+
+
+def test_judge_scores_appear_in_headline(tmp_path: Path, monkeypatch):
+    """When judge_scores.jsonl exists, the Quality column populates."""
+    raw = tmp_path / "raw"
+    run_dir = raw / "20260520_120000_support_triage_thriftai_warm_claude-haiku-4-5_seed0"
+    run_dir.mkdir(parents=True)
+    (run_dir / "judge_scores.jsonl").write_text(
+        '{"task_id": "T001", "classification_correct": 5, "retrieval_relevance": 4, "draft_helpful": 5, "rationale": "good"}\n'
+        '{"task_id": "T002", "classification_correct": 4, "retrieval_relevance": 4, "draft_helpful": 4, "rationale": "ok"}\n'
+    )
+    # Force the report module to read from our tmp dir.
+    monkeypatch.setattr(report, "RAW_DIR", raw)
+
+    records = [
+        {
+            "timestamp": "2026-05-20T00:00:00Z",
+            "run_id": "20260520_120000_support_triage_thriftai_warm_claude-haiku-4-5_seed0",
+            "workload": "support_triage",
+            "condition": "thriftai_warm",
+            "model_under_test": "claude-haiku-4-5",
+            "task_id": "T001",
+            "seed": 0,
+            "agent_name": "classifier",
+            "model": "claude-haiku-4-5",
+            "broker_resolution": "cache_hit",
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "actual_cost_usd_litellm": 0.0,
+            "would_have_cost_usd_litellm": 0.00005,
+            "embedding_cost_usd_litellm": 0.0,
+            "similarity_score": None,
+            "latency_total_ms": 1.0,
+            "latency_api_ms": None,
+            "latency_overhead_ms": 1.0,
+            "response_text_hash": "sha256:abc",
+        },
+    ]
+    out = report.render(records, _PRICING)
+    # T001 + T002 averages: (14/3 + 12/3)/2 = (4.67 + 4.0)/2 = 4.33
+    assert "4.33" in out or "4.3" in out

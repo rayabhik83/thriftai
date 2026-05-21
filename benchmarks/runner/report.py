@@ -18,6 +18,7 @@ so the structure is reviewable.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,25 +142,63 @@ def _resolution_counts(records: list[dict[str, Any]]) -> dict[tuple, dict[str, i
     return {k: dict(v) for k, v in by_cell.items()}
 
 
+_RUN_ID_RE = re.compile(
+    r"\d{8}_\d{6}_(?P<workload>[a-z_]+?)_"
+    r"(?P<condition>baseline|thriftai_cold|thriftai_warm|thriftai_replay)_"
+    r"(?P<model>[a-z0-9\-]+)_seed(?P<seed>\d+)"
+)
+
+
+def _load_judge_scores(raw_dir: Path = RAW_DIR) -> dict[tuple, list[float]]:
+    """Per cell → list of per-task aggregate quality scores (1-5 mean across rubric)."""
+    by_cell: dict[tuple, list[float]] = defaultdict(list)
+    if not raw_dir.exists():
+        return {}
+    for run_dir in sorted(raw_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        scores_path = run_dir / "judge_scores.jsonl"
+        if not scores_path.exists():
+            continue
+        m = _RUN_ID_RE.fullmatch(run_dir.name)
+        if m is None:
+            continue
+        cell = (m["workload"], m["condition"], m["model"])
+        with scores_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                int_fields = [v for k, v in row.items() if isinstance(v, int)]
+                if int_fields:
+                    by_cell[cell].append(sum(int_fields) / len(int_fields))
+    return dict(by_cell)
+
+
 # ---- Rendering ------------------------------------------------------------
 
 
 def _render_headline(
-    paid_by_cell: dict, would_have_by_cell: dict, latency_by_cell: dict
+    paid_by_cell: dict,
+    would_have_by_cell: dict,
+    latency_by_cell: dict,
+    judge_by_cell: dict,
 ) -> str:
-    """Headline table: workload × condition × model → $/task paid, $/task saved, latency."""
+    """Headline table: workload × condition × model → cost, quality, latency."""
     if not paid_by_cell and not latency_by_cell:
         return (
             "| Workload | Condition | Model | $/task paid (mean ± std) | "
-            "$/task saved | p50 latency (ms) | p95 latency (ms) |\n"
-            "|---|---|---|---|---|---|---|\n"
-            "| _no data yet_ |   |   |   |   |   |   |\n"
+            "$/task saved | Quality (1-5) | p50 latency (ms) | p95 latency (ms) |\n"
+            "|---|---|---|---|---|---|---|---|\n"
+            "| _no data yet_ |   |   |   |   |   |   |   |\n"
         )
 
     lines = [
         "| Workload | Condition | Model | $/task paid (mean ± std) | "
-        "$/task saved (mean ± std) | p50 latency (ms) | p95 latency (ms) |",
-        "|---|---|---|---|---|---|---|",
+        "$/task saved (mean ± std) | Quality (1-5, mean ± std) | "
+        "p50 latency (ms) | p95 latency (ms) |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     cells = sorted(
         set(paid_by_cell.keys())
@@ -170,7 +209,6 @@ def _render_headline(
         workload, condition, model = cell
         paid = paid_by_cell.get(cell, [])
         would_have = would_have_by_cell.get(cell, [])
-        # Per-task savings = would-have - paid, pairwise.
         savings = (
             [w - p for w, p in zip(would_have, paid)]
             if len(paid) == len(would_have)
@@ -178,12 +216,14 @@ def _render_headline(
         )
         paid_cell = stats.fmt_mean_std(paid, precision=4, unit=" $")
         saved_cell = stats.fmt_mean_std(savings, precision=4, unit=" $")
+        quality_vals = judge_by_cell.get(cell, [])
+        quality_cell = stats.fmt_mean_std(quality_vals, precision=2) if quality_vals else "—"
         latencies = latency_by_cell.get(cell, [])
         p50 = f"{stats.p50(latencies):.0f}" if latencies else "—"
         p95 = f"{stats.p95(latencies):.0f}" if latencies else "—"
         lines.append(
             f"| {workload} | {condition} | {model} | {paid_cell} | {saved_cell} | "
-            f"{p50} | {p95} |"
+            f"{quality_cell} | {p50} | {p95} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -211,6 +251,8 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
     paid_by_cell, would_have_by_cell = _per_task_cost(records, pricing)
     latency_by_cell = _per_call_latency(records)
     counts = _resolution_counts(records)
+    # Judge scores are an optional sidecar; missing = "—" in the Quality column.
+    judge_by_cell = _load_judge_scores(RAW_DIR)
 
     pulled_on = pricing.get("pulled_on", "unknown")
     source_url = pricing.get("source_url", "")
@@ -226,7 +268,9 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
         + (f" — [source]({source_url})" if source_url else "")
         + ".\n\n"
         "## Headline\n\n"
-        + _render_headline(paid_by_cell, would_have_by_cell, latency_by_cell)
+        + _render_headline(
+            paid_by_cell, would_have_by_cell, latency_by_cell, judge_by_cell
+        )
         + "\n## Call resolution breakdown\n\n"
         "Counts of brokered-call outcomes per cell. Cache vs replay vs live\n"
         "tells you which mechanism is doing the work.\n\n"

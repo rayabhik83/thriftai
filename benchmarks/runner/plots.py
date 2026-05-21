@@ -121,7 +121,8 @@ def _parse_run_dir_name(name: str) -> dict[str, str] | None:
     """Pull (workload, condition, model, seed) back out of a run-id dir name."""
     import re
     m = re.fullmatch(
-        r"\d{8}_\d{6}_(?P<workload>[a-z_]+)_(?P<condition>[a-z_]+)_"
+        r"\d{8}_\d{6}_(?P<workload>[a-z_]+?)_"
+        r"(?P<condition>baseline|thriftai_cold|thriftai_warm|thriftai_replay)_"
         r"(?P<model>[a-z0-9\-]+)_seed(?P<seed>\d+)",
         name,
     )
