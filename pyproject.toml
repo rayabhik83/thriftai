@@ -50,6 +50,7 @@ bench = [
     "scipy>=1.11",
     "human-eval>=1.0.3",
     "datasets>=2.14",
+    "tenacity>=8.0",
     "pytest>=8.0",
 ]
 
