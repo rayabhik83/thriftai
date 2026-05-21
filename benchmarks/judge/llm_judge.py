@@ -72,8 +72,46 @@ Output ONLY valid JSON, no other text, with this exact shape:
 """
 
 
+RESEARCH_ANALYST_RUBRIC = """\
+You are a strict, fair judge of a research-analyst pipeline.
+
+You are given:
+- question: the research question.
+- scout: a list of sub-questions the scout proposed.
+- plan: the research plan.
+- analysis: the analyst's answer.
+- critique: the critic's pushback.
+
+Score each on a 1-5 integer scale:
+
+  scout_quality (1-5):
+    5 = sub-questions cover the key angles for the question
+    3 = a reasonable starting list, misses some major angles
+    1 = clearly off-topic or trivially shallow
+
+  plan_coherence (1-5):
+    5 = the plan would, if executed, produce a complete answer
+    3 = the plan is sensible but vague or skips steps
+    1 = the plan is confused or contradicts the question
+
+  analysis_depth (1-5):
+    5 = a substantive multi-step analysis that addresses the question
+    3 = an analysis that's correct but surface-level
+    1 = generic, evasive, or factually wrong
+
+  critique_sharpness (1-5):
+    5 = identifies a real counter-argument or unaddressed factor
+    3 = a generic critique that could apply anywhere
+    1 = empty or no real engagement with the analysis
+
+Output ONLY valid JSON, no other text, with this exact shape:
+{"scout_quality": <int>, "plan_coherence": <int>, "analysis_depth": <int>, "critique_sharpness": <int>, "rationale": "<1-2 sentence justification>"}
+"""
+
+
 RUBRICS: dict[str, str] = {
     "support_triage": SUPPORT_TRIAGE_RUBRIC,
+    "research_analyst": RESEARCH_ANALYST_RUBRIC,
 }
 
 

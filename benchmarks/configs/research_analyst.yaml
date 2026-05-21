@@ -1,0 +1,29 @@
+workload: research_analyst
+
+description: |
+  Four-agent pipeline (scout → planner → analyst → critic) over 20
+  research questions across finance, science, history, and current
+  events. The depends_on chain is intentional so the workload doubles
+  as a downstream-invalidation testbed for thriftai_replay.
+
+data_file: benchmarks/data/research_questions.jsonl
+
+default_model: claude-haiku-4-5
+
+conditions:
+  - baseline
+  - thriftai_cold
+  - thriftai_warm
+  - thriftai_replay
+
+# Which agents stay live during thriftai_replay. The rest replay
+# deterministically from the trace recorded by an unmeasured warmup
+# pass. This is the canonical "iterate on the last agent" workflow.
+replay_live_agents:
+  - critic
+
+thriftai_session:
+  embedding_model: null
+  semantic_threshold: 0.92
+  semantic_min_chars: 100
+  semantic_bucket_size: 1000

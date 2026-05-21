@@ -34,7 +34,7 @@ def make_session(condition: str, cache_dir: Path, thriftai_config: dict) -> Sess
     if condition == "baseline":
         return Session(enabled=False)
 
-    if condition in ("thriftai_cold", "thriftai_warm"):
+    if condition in ("thriftai_cold", "thriftai_warm", "thriftai_replay"):
         return Session(
             cache_dir=cache_dir,
             enabled=True,

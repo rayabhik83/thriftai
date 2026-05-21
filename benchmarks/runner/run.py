@@ -105,10 +105,12 @@ def _run_one_cell(
     # except when the warm pre-population step runs first (handled below).
     reset_cache_dir(cache_dir)
 
-    # If this is the warm condition, do an unmeasured warmup pass before
-    # the measured pass. The warmup pass uses the same cache_dir; the
-    # measured pass then runs against an already-warm cache.
-    if condition == "thriftai_warm":
+    # For thriftai_warm and thriftai_replay we do an unmeasured warmup
+    # pass first. Warmup populates the cache (warm) and records traces
+    # (replay). For replay we also remember each task's trace_id so the
+    # measured pass can replay deterministically with live=replay_live_agents.
+    task_trace_ids: dict[str, str] = {}
+    if condition in ("thriftai_warm", "thriftai_replay"):
         warmup_session = make_session(
             "thriftai_cold",  # warmup uses the same factory as cold
             cache_dir,
@@ -116,10 +118,13 @@ def _run_one_cell(
         )
         instrumentation.set_context(None)  # un-measured pass — no JSONL writes
         for task in tasks:
-            workload_mod.run_one(warmup_session, task, corpus, model)
+            warmup_artifacts = workload_mod.run_one(warmup_session, task, corpus, model)
+            if "trace_id" in warmup_artifacts:
+                task_trace_ids[task["id"]] = warmup_artifacts["trace_id"]
 
     # Now build the session we measure.
     session = make_session(condition, cache_dir, workload_config.get("thriftai_session", {}))
+    replay_live_agents = workload_config.get("replay_live_agents", []) or []
 
     # Configure JSONL output for this cell and set the bench context for
     # each per-task invocation.
@@ -139,7 +144,15 @@ def _run_one_cell(
             )
         )
         try:
-            result = workload_mod.run_one(session, task, corpus, model)
+            if condition == "thriftai_replay":
+                trace_id = task_trace_ids.get(task["id"])
+                result = workload_mod.run_one(
+                    session, task, corpus, model,
+                    replay_trace_id=trace_id,
+                    live_agents=replay_live_agents,
+                )
+            else:
+                result = workload_mod.run_one(session, task, corpus, model)
         finally:
             instrumentation.set_context(None)
         artifacts.append(result)
