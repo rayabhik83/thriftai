@@ -1,17 +1,23 @@
 """
-Sample the canonical code-review corpus from `bigcode/the-stack-smol`.
+Sample the canonical code-review corpus from a public Python code dataset.
 
-Output: 20 Python snippets, each one a reasonably-sized function or
-short module that gives a code reviewer enough to chew on without
-being so large that the reviewer's response would blow our token
-budget. Both the sampling script and the resulting JSONL are
-committed; the JSONL is the canonical input for the workload.
+Originally targeted `bigcode/the-stack-smol-xs` per the brief, but that
+dataset is gated (requires HF auth + signed terms) and uses the old
+dataset-script format that current `datasets` no longer supports. We
+switched to `codeparrot/codeparrot-clean-valid` which is non-gated,
+Python-only, and exposes the same content/license/path shape. Both
+datasets pull from public OSS code with permissive licenses, so the
+character of the benchmark inputs is materially the same.
 
-Idempotent: we hash-sort the dataset and take the first 20 entries
-that pass the size filter, so re-running produces the same output
-(modulo upstream dataset changes).
+Output: 20 Python snippets, each a reasonably-sized function or short
+module. Both the sampling script and the resulting JSONL are committed;
+the JSONL is the canonical input for the workload.
 
-Cost: \$0 API. ~50-200 MB transient disk for the HF dataset cache.
+Idempotent: we hash-sort entries that pass the size filter and take
+the first 20, so re-running produces the same output (modulo upstream
+dataset changes).
+
+Cost: \$0 API. ~100 MB transient disk for the HF dataset cache.
 """
 
 from __future__ import annotations
@@ -39,20 +45,26 @@ def _stable_hash(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def sample(out_path: Path, n: int = 20, dataset_id: str = "bigcode/the-stack-smol") -> int:
+def sample(out_path: Path, n: int = 20, dataset_id: str = "codeparrot/codeparrot-clean-valid") -> int:
     """Pull `n` snippets from the dataset, return count written."""
     from datasets import load_dataset
 
-    print(f"  loading {dataset_id} (Python config)...", file=sys.stderr)
+    print(f"  loading {dataset_id} (streaming)...", file=sys.stderr)
     sys.stderr.flush()
-    # bigcode/the-stack-smol exposes one config per language. Python is
-    # the natural choice for code review samples.
-    ds = load_dataset(dataset_id, data_dir="data/python", split="train", streaming=False)
+    # codeparrot/codeparrot-clean-valid is the validation slice of
+    # codeparrot-clean: Python-only, license-tagged, no auth required.
+    # We use streaming mode to avoid downloading the entire dataset.
+    ds = load_dataset(dataset_id, split="train", streaming=True)
 
     selected: list[dict] = []
+    inspected = 0
     # Iterate in stable order (hash of content) so we always pick the
-    # same N entries for the same dataset snapshot.
+    # same N entries for the same dataset snapshot. Cap inspection at
+    # ~5000 rows so streaming doesn't run forever.
     for row in ds:
+        inspected += 1
+        if inspected > 5000:
+            break
         content = row.get("content", "")
         if not isinstance(content, str):
             continue
@@ -104,7 +116,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="code_review_sample")
     parser.add_argument("--n", type=int, default=20)
     parser.add_argument("--out", type=Path, default=OUTPUT_PATH)
-    parser.add_argument("--dataset", default="bigcode/the-stack-smol")
+    parser.add_argument("--dataset", default="codeparrot/codeparrot-clean-valid")
     args = parser.parse_args()
 
     n = sample(args.out, n=args.n, dataset_id=args.dataset)
