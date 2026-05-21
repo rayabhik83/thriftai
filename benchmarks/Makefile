@@ -25,10 +25,11 @@ install: ## install bench extras
 test: ## run the bench harness tests (no API calls)
 	cd $(REPO_ROOT) && $(PY) -m pytest benchmarks/tests/ -q
 
-smoke: ## N=2, support_triage, Haiku only
+smoke: ## N=2, support_triage (20 tasks), Haiku only — fast validation
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.run \
 		--workload support_triage \
 		--n 2 \
+		--task-limit 20 \
 		--model claude-haiku-4-5
 
 bench: ## N=5, all workloads, Haiku + Sonnet

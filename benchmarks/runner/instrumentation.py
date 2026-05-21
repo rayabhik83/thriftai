@@ -23,7 +23,7 @@ import contextvars
 import hashlib
 import json
 import threading
-import time
+import time as _time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,6 +61,20 @@ _api_latency_ms: contextvars.ContextVar[float | None] = contextvars.ContextVar(
 
 _jsonl_lock = threading.Lock()
 _jsonl_path: Path | None = None
+
+# Live-call throttle. LiteLLM's retry-with-backoff isn't enough on a tight
+# per-minute rate limit because the retries keep accumulating into the same
+# 60-second window. A small enforced gap *between* live calls keeps the
+# average rate safely under the cap. The throttle sleeps AFTER the call,
+# so it doesn't inflate recorded latency_total_ms.
+_min_gap_between_live_calls_sec: float = 0.0
+
+
+def configure_throttle(min_gap_sec: float) -> None:
+    """Set the minimum delay enforced after every live brokered call."""
+    global _min_gap_between_live_calls_sec
+    _min_gap_between_live_calls_sec = float(min_gap_sec)
+
 
 # Budget enforcement. Set via configure_budget(); checked after every live call.
 _budget_cap_usd: float | None = None
@@ -157,11 +171,11 @@ def is_installed() -> bool:
 def _instrumented_call_litellm(*args: Any, **kwargs: Any) -> Any:
     """Wrap the original call_litellm to capture API latency."""
     assert _original_call_litellm is not None
-    t0 = time.perf_counter()
+    t0 = _time.perf_counter()
     try:
         return _original_call_litellm(*args, **kwargs)
     finally:
-        _api_latency_ms.set((time.perf_counter() - t0) * 1000.0)
+        _api_latency_ms.set((_time.perf_counter() - t0) * 1000.0)
 
 
 def _instrumented_route(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -175,9 +189,9 @@ def _instrumented_route(self: Any, *args: Any, **kwargs: Any) -> Any:
 
     # Reset so api latency below is fresh for this call.
     _api_latency_ms.set(None)
-    t0 = time.perf_counter()
+    t0 = _time.perf_counter()
     result = _original_route(self, *args, **kwargs)
-    total_ms = (time.perf_counter() - t0) * 1000.0
+    total_ms = (_time.perf_counter() - t0) * 1000.0
     api_ms = _api_latency_ms.get()
     overhead_ms = total_ms - (api_ms or 0.0)
 
@@ -220,6 +234,11 @@ def _instrumented_route(self: Any, *args: Any, **kwargs: Any) -> Any:
         _budget.record(amount, run_id=ctx.run_id, condition=ctx.condition)
         if _budget_cap_usd is not None:
             _budget.check(_budget_cap_usd)
+
+        # Throttle the *next* live call. The sleep is AFTER the recorded
+        # latency timing above, so it doesn't inflate latency_total_ms.
+        if _min_gap_between_live_calls_sec > 0:
+            _time.sleep(_min_gap_between_live_calls_sec)
 
     return result
 

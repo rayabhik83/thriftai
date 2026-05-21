@@ -189,6 +189,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Default: 10."
         ),
     )
+    p.add_argument(
+        "--throttle-gap-sec",
+        type=float,
+        default=1.3,
+        help=(
+            "Minimum seconds to sleep AFTER each live brokered call. Keeps the "
+            "average request rate safely under tight per-minute limits "
+            "(50 RPM Haiku → 1.3s gives ~46 RPM ceiling). Set 0 to disable."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -217,8 +227,12 @@ def main(argv: list[str] | None = None) -> int:
         cap_usd=args.budget,
         pricing_yaml_path=BENCH_DIR / "pricing.yaml",
     )
+    instrumentation.configure_throttle(args.throttle_gap_sec)
     before = _budget.total_spent()
-    print(f"budget: spent so far ${before:.4f}, cap ${args.budget:.2f}")
+    print(
+        f"budget: spent so far ${before:.4f}, cap ${args.budget:.2f}; "
+        f"throttle {args.throttle_gap_sec}s between live calls"
+    )
 
     workloads = (
         ["support_triage", "research_analyst", "code_review", "humaneval"]
