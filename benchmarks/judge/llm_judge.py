@@ -23,6 +23,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,11 @@ CACHE_DB = BENCH_DIR / "cache" / "judge.db"
 JUDGE_MODEL = "claude-opus-4-7"
 
 _db_lock = threading.Lock()
+
+# Minimum delay AFTER each live judge call. Opus has its own per-minute
+# rate limit (typically 50 RPM on lower tiers). Mirrors the runner's
+# in-process throttle so we don't crash mid-run.
+JUDGE_THROTTLE_GAP_SEC = 1.3
 
 
 # ---- per-workload rubrics --------------------------------------------------
@@ -169,7 +175,14 @@ def judge(
     if litellm_completion is None:
         import litellm
 
+        # Enable retry-with-backoff if not already configured (idempotent).
+        litellm.num_retries = max(getattr(litellm, "num_retries", 0) or 0, 5)
         litellm_completion = litellm.completion
+
+    # Opus 4.7 rejects the `temperature` parameter as deprecated. Other
+    # Claude models still accept it. Conditional pass keeps the judge
+    # deterministic-ish on older models without breaking newer ones.
+    kwargs = {} if "opus-4-7" in model else {"temperature": 0.0}
 
     response = litellm_completion(
         model=model,
@@ -183,10 +196,15 @@ def judge(
                 ),
             },
         ],
-        temperature=0.0,
+        **kwargs,
     )
     raw_text = response.choices[0].message.content
     scores = _parse_judge_response(raw_text)
+
+    # Throttle after each live judge call so successive Opus calls stay
+    # under the per-minute rate limit.
+    if JUDGE_THROTTLE_GAP_SEC > 0:
+        time.sleep(JUDGE_THROTTLE_GAP_SEC)
 
     # Spend tracking for the judge — record alongside workload spend so
     # the same $10 cap covers both.
