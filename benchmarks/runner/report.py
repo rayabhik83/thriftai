@@ -150,29 +150,55 @@ _RUN_ID_RE = re.compile(
 
 
 def _load_judge_scores(raw_dir: Path = RAW_DIR) -> dict[tuple, list[float]]:
-    """Per cell → list of per-task aggregate quality scores (1-5 mean across rubric)."""
+    """Per cell → list of per-task aggregate quality scores.
+
+    Two sources, both optional sidecars next to the artifacts:
+
+    - judge_scores.jsonl: LLM-as-judge rubric scores (1-5 ints). We
+      average all int fields per task and emit a 1-5 number.
+    - humaneval_scores.jsonl: pass@1 per task (1.0 or 0.0). We use
+      the pass@1 value directly and rescale to a 1-5 quality reading
+      for the headline (1.0 → 5.0, 0.0 → 1.0) so the column is
+      consistent across workloads.
+
+    For a single cell at most one of the two files exists, so there's
+    no double-counting.
+    """
     by_cell: dict[tuple, list[float]] = defaultdict(list)
     if not raw_dir.exists():
         return {}
     for run_dir in sorted(raw_dir.iterdir()):
         if not run_dir.is_dir():
             continue
-        scores_path = run_dir / "judge_scores.jsonl"
-        if not scores_path.exists():
-            continue
         m = _RUN_ID_RE.fullmatch(run_dir.name)
         if m is None:
             continue
         cell = (m["workload"], m["condition"], m["model"])
-        with scores_path.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                row = json.loads(line)
-                int_fields = [v for k, v in row.items() if isinstance(v, int)]
-                if int_fields:
-                    by_cell[cell].append(sum(int_fields) / len(int_fields))
+
+        judge_path = run_dir / "judge_scores.jsonl"
+        if judge_path.exists():
+            with judge_path.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    int_fields = [v for k, v in row.items() if isinstance(v, int)]
+                    if int_fields:
+                        by_cell[cell].append(sum(int_fields) / len(int_fields))
+
+        humaneval_path = run_dir / "humaneval_scores.jsonl"
+        if humaneval_path.exists():
+            with humaneval_path.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    pass_at_1 = row.get("pass_at_1")
+                    if pass_at_1 is not None:
+                        # Rescale 0/1 → 1-5 so the column shares a scale.
+                        by_cell[cell].append(1.0 + 4.0 * float(pass_at_1))
     return dict(by_cell)
 
 
