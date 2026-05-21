@@ -77,16 +77,24 @@ def cost_from_pricing(
 # ---- Aggregation ----------------------------------------------------------
 
 
-def _per_task_cost(records: list[dict[str, Any]], pricing: dict[str, Any]) -> dict:
-    """Group by (workload, condition, model_under_test, seed, task_id) → cost.
+def _per_task_cost(
+    records: list[dict[str, Any]], pricing: dict[str, Any]
+) -> tuple[dict, dict]:
+    """Group by (workload, condition, model_under_test) → (paid, would-have) costs.
 
-    Returns nested dict: cell → list of (per-task) costs across seeds.
-    Cell key is (workload, condition, model_under_test).
+    Returns (paid_by_cell, would_have_by_cell). Each maps a cell to a list
+    of per-task totals (one entry per task per seed).
+
+    - **paid**: actual USD spent. Cache hits and replays count as $0;
+      only `live` resolutions cost money.
+    - **would-have**: cost computed from token counts as if every call
+      had gone live. Used to compute savings (would_have - paid).
+
+    Costs are computed from `pricing.yaml`, not from any LiteLLM-reported
+    number, so the figures are recomputable from raw logs.
     """
-    # Aggregate calls into per-task totals: sum cost for all calls in a
-    # (run_id, task_id) bucket. Then for each cell, collect one cost per
-    # (seed, task_id) so we have N runs × M tasks samples for variance.
-    by_task: dict[tuple, float] = defaultdict(float)
+    paid_by_task: dict[tuple, float] = defaultdict(float)
+    would_have_by_task: dict[tuple, float] = defaultdict(float)
     cell_keys: dict[tuple, tuple] = {}
 
     for r in records:
@@ -95,16 +103,22 @@ def _per_task_cost(records: list[dict[str, Any]], pricing: dict[str, Any]) -> di
         )
         if cost is None:
             continue
-        task_key = (r["run_id"], r["workload"], r["condition"],
-                    r["model_under_test"], r["seed"], r["task_id"])
-        by_task[task_key] += cost
+        task_key = (
+            r["run_id"], r["workload"], r["condition"],
+            r["model_under_test"], r["seed"], r["task_id"],
+        )
         cell_keys[task_key] = (r["workload"], r["condition"], r["model_under_test"])
+        would_have_by_task[task_key] += cost
+        if r["broker_resolution"] == "live":
+            paid_by_task[task_key] += cost
+        # else: cache_hit / semantic_hit / replay → paid is $0 for this call
 
-    by_cell: dict[tuple, list[float]] = defaultdict(list)
-    for task_key, total_cost in by_task.items():
-        cell = cell_keys[task_key]
-        by_cell[cell].append(total_cost)
-    return dict(by_cell)
+    paid_by_cell: dict[tuple, list[float]] = defaultdict(list)
+    would_have_by_cell: dict[tuple, list[float]] = defaultdict(list)
+    for task_key, cell in cell_keys.items():
+        paid_by_cell[cell].append(paid_by_task.get(task_key, 0.0))
+        would_have_by_cell[cell].append(would_have_by_task[task_key])
+    return dict(paid_by_cell), dict(would_have_by_cell)
 
 
 def _per_call_latency(records: list[dict[str, Any]]) -> dict[tuple, list[float]]:
@@ -131,32 +145,45 @@ def _resolution_counts(records: list[dict[str, Any]]) -> dict[tuple, dict[str, i
 
 
 def _render_headline(
-    cost_by_cell: dict, latency_by_cell: dict
+    paid_by_cell: dict, would_have_by_cell: dict, latency_by_cell: dict
 ) -> str:
-    """Headline table: workload × condition × model → $/task, latency."""
-    if not cost_by_cell and not latency_by_cell:
+    """Headline table: workload × condition × model → $/task paid, $/task saved, latency."""
+    if not paid_by_cell and not latency_by_cell:
         return (
-            "| Workload | Condition | Model | $/task (mean ± std) | "
-            "p50 latency (ms) | p95 latency (ms) |\n"
-            "|---|---|---|---|---|---|\n"
-            "| _no data yet_ |   |   |   |   |   |\n"
+            "| Workload | Condition | Model | $/task paid (mean ± std) | "
+            "$/task saved | p50 latency (ms) | p95 latency (ms) |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "| _no data yet_ |   |   |   |   |   |   |\n"
         )
 
     lines = [
-        "| Workload | Condition | Model | $/task (mean ± std) | "
-        "p50 latency (ms) | p95 latency (ms) |",
-        "|---|---|---|---|---|---|",
+        "| Workload | Condition | Model | $/task paid (mean ± std) | "
+        "$/task saved (mean ± std) | p50 latency (ms) | p95 latency (ms) |",
+        "|---|---|---|---|---|---|---|",
     ]
-    # Stable ordering: sort by cell tuple.
-    cells = sorted(set(cost_by_cell.keys()) | set(latency_by_cell.keys()))
+    cells = sorted(
+        set(paid_by_cell.keys())
+        | set(would_have_by_cell.keys())
+        | set(latency_by_cell.keys())
+    )
     for cell in cells:
         workload, condition, model = cell
-        cost_cell = stats.fmt_mean_std(cost_by_cell.get(cell, []), precision=4, unit=" $")
+        paid = paid_by_cell.get(cell, [])
+        would_have = would_have_by_cell.get(cell, [])
+        # Per-task savings = would-have - paid, pairwise.
+        savings = (
+            [w - p for w, p in zip(would_have, paid)]
+            if len(paid) == len(would_have)
+            else []
+        )
+        paid_cell = stats.fmt_mean_std(paid, precision=4, unit=" $")
+        saved_cell = stats.fmt_mean_std(savings, precision=4, unit=" $")
         latencies = latency_by_cell.get(cell, [])
         p50 = f"{stats.p50(latencies):.0f}" if latencies else "—"
         p95 = f"{stats.p95(latencies):.0f}" if latencies else "—"
         lines.append(
-            f"| {workload} | {condition} | {model} | {cost_cell} | {p50} | {p95} |"
+            f"| {workload} | {condition} | {model} | {paid_cell} | {saved_cell} | "
+            f"{p50} | {p95} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -181,7 +208,7 @@ def _render_resolution_breakdown(counts: dict) -> str:
 
 def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
     """Build the full report markdown string. Pure function — no IO."""
-    cost_by_cell = _per_task_cost(records, pricing)
+    paid_by_cell, would_have_by_cell = _per_task_cost(records, pricing)
     latency_by_cell = _per_call_latency(records)
     counts = _resolution_counts(records)
 
@@ -199,7 +226,7 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
         + (f" — [source]({source_url})" if source_url else "")
         + ".\n\n"
         "## Headline\n\n"
-        + _render_headline(cost_by_cell, latency_by_cell)
+        + _render_headline(paid_by_cell, would_have_by_cell, latency_by_cell)
         + "\n## Call resolution breakdown\n\n"
         "Counts of brokered-call outcomes per cell. Cache vs replay vs live\n"
         "tells you which mechanism is doing the work.\n\n"

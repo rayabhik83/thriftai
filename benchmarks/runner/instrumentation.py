@@ -30,6 +30,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 import thriftai.broker as broker_mod
+import yaml
+
+# Imported lazily inside functions to avoid a circular import at module
+# load time (budget.py is small, no actual cycle, but staying conservative).
 
 
 @dataclass
@@ -57,6 +61,37 @@ _api_latency_ms: contextvars.ContextVar[float | None] = contextvars.ContextVar(
 
 _jsonl_lock = threading.Lock()
 _jsonl_path: Path | None = None
+
+# Budget enforcement. Set via configure_budget(); checked after every live call.
+_budget_cap_usd: float | None = None
+_pricing_models: dict | None = None  # parsed pricing.yaml → models dict
+
+
+def configure_budget(cap_usd: float | None, pricing_yaml_path: Path | None) -> None:
+    """Enable per-call spend tracking + cap enforcement.
+
+    cap_usd of None disables enforcement (live calls still accrue to the
+    ledger so a future cap can be applied retroactively).
+    """
+    global _budget_cap_usd, _pricing_models
+    _budget_cap_usd = cap_usd
+    if pricing_yaml_path is not None and pricing_yaml_path.exists():
+        with pricing_yaml_path.open() as f:
+            _pricing_models = (yaml.safe_load(f) or {}).get("models", {})
+    else:
+        _pricing_models = None
+
+
+def _cost_from_pricing(model: str, input_tokens: int, output_tokens: int) -> float:
+    if _pricing_models is None:
+        return 0.0
+    entry = _pricing_models.get(model)
+    if entry is None:
+        return 0.0
+    return (
+        input_tokens / 1_000_000.0 * entry["input_per_million_usd"]
+        + output_tokens / 1_000_000.0 * entry["output_per_million_usd"]
+    )
 
 
 def set_context(ctx: BenchContext | None) -> None:
@@ -176,6 +211,16 @@ def _instrumented_route(self: Any, *args: Any, **kwargs: Any) -> Any:
         + hashlib.sha256(result.response_text.encode("utf-8")).hexdigest()[:16],
     }
     _write_record(record)
+
+    # Spend tracking — only live calls cost real money. Append to the
+    # persistent ledger and abort the run cleanly if the cap is hit.
+    if result.resolution.value == "live":
+        from . import budget as _budget  # local import to keep startup light
+        amount = _cost_from_pricing(result.model, result.input_tokens, result.output_tokens)
+        _budget.record(amount, run_id=ctx.run_id, condition=ctx.condition)
+        if _budget_cap_usd is not None:
+            _budget.check(_budget_cap_usd)
+
     return result
 
 

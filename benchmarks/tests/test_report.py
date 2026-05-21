@@ -105,6 +105,12 @@ def test_render_with_records_includes_aggregates(tmp_path: Path):
     assert "1150" in out
     # Resolution breakdown shows 2 live calls.
     assert "| support_triage | baseline | claude-haiku-4-5 | 2 |" in out
+    # Both live → paid > 0, saved = 0.0000. Exact value across two calls:
+    # 1000*0.25/M + 200*1.25/M + 500*0.25/M + 100*1.25/M = $0.00075.
+    # Cost is per-task: both calls are the same task → one $0.00075 entry.
+    # Headline column uses precision=4. The "saved" cell is 0.0000.
+    assert "0.0008" in out  # paid 0.00075 → "0.0008" at precision=4
+    assert "0.0000 ± 0.0000" in out  # saved column (all live)
 
 
 def test_main_writes_file_when_no_data(tmp_path: Path, monkeypatch):

@@ -14,7 +14,7 @@
 PY ?= python3
 REPO_ROOT := $(shell git rev-parse --show-toplevel)
 
-.PHONY: help install test smoke bench report rederive clean
+.PHONY: help install test smoke bench report rederive clean spent budget-reset
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ — /'
@@ -44,3 +44,9 @@ rederive: ## verify dollar figures from raw logs + pricing.yaml
 
 clean: ## clear raw logs and bench cache (keeps REPORT.md and plots/)
 	rm -rf $(REPO_ROOT)/benchmarks/results/raw $(REPO_ROOT)/benchmarks/cache
+
+spent: ## print total recorded spend (USD) across all runs on this branch
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.budget total
+
+budget-reset: ## clear the persistent spend ledger
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.budget reset

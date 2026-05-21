@@ -170,6 +170,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="for smoke: only process the first N tasks",
     )
+    p.add_argument(
+        "--budget",
+        type=float,
+        default=10.0,
+        help=(
+            "Hard cap on cumulative spend (USD) across all runs in this branch. "
+            "Persistent across invocations via benchmarks/cache/spend_ledger.jsonl. "
+            "Default: 10."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -180,7 +190,26 @@ def main(argv: list[str] | None = None) -> int:
     # without the user needing to source it manually.
     load_dotenv(BENCH_DIR / ".env")
 
+    # Enable LiteLLM's built-in 429 retry with exponential backoff. The
+    # benchmark hits the per-minute rate limit on burst, especially in
+    # baseline / thriftai_cold conditions where every call is live.
+    # Retried calls' latency naturally inflates — that's accurate, since
+    # a real user hitting the same rate limit experiences the same wait.
+    import litellm
+    litellm.num_retries = 5
+
     instrumentation.install()
+
+    # Spend tracking + cap. Total accrued lives in benchmarks/cache/
+    # spend_ledger.jsonl (gitignored). Persists across runs so the
+    # $10 budget is a project-wide cap, not per-invocation.
+    from . import budget as _budget
+    instrumentation.configure_budget(
+        cap_usd=args.budget,
+        pricing_yaml_path=BENCH_DIR / "pricing.yaml",
+    )
+    before = _budget.total_spent()
+    print(f"budget: spent so far ${before:.4f}, cap ${args.budget:.2f}")
 
     workloads = (
         ["support_triage", "research_analyst", "code_review", "humaneval"]
@@ -221,6 +250,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Regenerate the report from whatever's now in raw/.
     render_report()
+
+    after = _budget.total_spent()
+    print(f"budget: spent this run ${after - before:.4f}, total ${after:.4f}")
     return 0
 
 
