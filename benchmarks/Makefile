@@ -52,6 +52,9 @@ humaneval-score: ## run official human_eval evaluator on humaneval artifacts
 plots: ## render the 3 required figures into benchmarks/results/plots/
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.plots
 
+export-csv: ## dump plot-source aggregates as CSV (tool-agnostic, no API)
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.export_csv
+
 clean: ## clear raw logs and bench cache (keeps REPORT.md and plots/)
 	rm -rf $(REPO_ROOT)/benchmarks/results/raw $(REPO_ROOT)/benchmarks/cache
 
