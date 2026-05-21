@@ -382,7 +382,7 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
         status_line = "> **Status: no data.**\n>\n"
 
     return (
-        f"# ThriftAI Benchmark Results\n\n"
+        "# ThriftAI Benchmark Results\n\n"
         + status_line
         + f"> Generated {now} from {n_records} calls across {n_runs} run(s).\n"
         f"> Pricing snapshot: pulled {pulled_on}"

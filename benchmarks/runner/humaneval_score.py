@@ -18,7 +18,6 @@ humaneval_scores.jsonl (sidecar mirror of judge_scores.jsonl).
 from __future__ import annotations
 
 import json
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -47,8 +46,10 @@ def _score_with_humaneval(artifacts: list[dict]) -> dict[str, float]:
             f.write(json.dumps(c) + "\n")
         path = f.name
 
-    # `evaluate_functional_correctness` writes results to a sidecar file.
-    results = evaluate_functional_correctness(
+    # `evaluate_functional_correctness` writes per-task results to a
+    # sidecar file alongside `path`. We parse that below; the return
+    # value (aggregate pass@1 across the slice) we don't use directly.
+    evaluate_functional_correctness(
         sample_file=path,
         k=[1],
         n_workers=1,

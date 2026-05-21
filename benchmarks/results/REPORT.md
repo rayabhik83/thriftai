@@ -2,16 +2,16 @@
 
 > **Status: complete.** All planned workloads measured.
 >
-> Generated 2026-05-21 02:43 UTC from 1840 calls across 32 run(s).
+> Generated 2026-05-21 02:59 UTC from 1840 calls across 32 run(s).
 > Pricing snapshot: pulled 2026-05-19 — [source](https://www.anthropic.com/pricing#anthropic-api).
 
 ## Headline
 
 | Workload | Condition | Model | $/task paid (mean ± std) | $/task saved (mean ± std) | Quality (1-5, mean ± std) | p50 latency (ms) | p95 latency (ms) |
 |---|---|---|---|---|---|---|---|
-| code_review | baseline | claude-haiku-4-5 | 0.0017 ± 0.0004 $ | 0.0000 ± 0.0000 $ | — | 2812 | 4409 |
-| code_review | thriftai_cold | claude-haiku-4-5 | 0.0017 ± 0.0003 $ | 0.0000 ± 0.0000 $ | — | 2823 | 4196 |
-| code_review | thriftai_warm | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0017 ± 0.0004 $ | — | 0 | 1 |
+| code_review | baseline | claude-haiku-4-5 | 0.0017 ± 0.0004 $ | 0.0000 ± 0.0000 $ | 3.33 ± 0.51 | 2812 | 4409 |
+| code_review | thriftai_cold | claude-haiku-4-5 | 0.0017 ± 0.0003 $ | 0.0000 ± 0.0000 $ | 3.33 ± 0.59 | 2823 | 4196 |
+| code_review | thriftai_warm | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0017 ± 0.0004 $ | 3.37 ± 0.56 | 0 | 1 |
 | humaneval | baseline | claude-haiku-4-5 | 0.0002 ± 0.0001 $ | 0.0000 ± 0.0000 $ | 5.00 ± 0.00 | 1290 | 2208 |
 | humaneval | thriftai_cold | claude-haiku-4-5 | 0.0002 ± 0.0001 $ | 0.0000 ± 0.0000 $ | 4.90 ± 0.63 | 1193 | 2070 |
 | humaneval | thriftai_warm | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0002 ± 0.0001 $ | 5.00 ± 0.00 | 0 | 1 |
@@ -74,9 +74,9 @@ tells you which mechanism is doing the work.
 
 | Condition | Score |
 |---|---|
-| baseline | — |
-| thriftai_cold | — |
-| thriftai_warm | — |
+| baseline | 3.33 ± 0.51 |
+| thriftai_cold | 3.33 ± 0.59 |
+| thriftai_warm | 3.37 ± 0.56 |
 
 ### humaneval
 

@@ -25,7 +25,6 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
 BENCH_DIR = Path(__file__).resolve().parents[1]
 CACHE_DB = BENCH_DIR / "cache" / "judge.db"

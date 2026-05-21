@@ -2,7 +2,23 @@
 
 Reproducible benchmarks for ThriftAI's caching and replay features. Designed to satisfy a skeptical-senior-engineer level of scrutiny.
 
-> Status: **scaffolding in progress**. See `benchmarks/PLAN.md` for the full build plan and current step.
+> Status: **N=2 results landed** across all four workloads. See `benchmarks/results/REPORT.md` for the headline table and `benchmarks/PLAN.md` for the design. N=5 production run is a follow-up after raising the Anthropic rate-limit tier.
+
+## Headline (N=2, Haiku 4.5; one Sonnet-4.6 arm)
+
+The warm-cache and replay paths cost **$0/task** while preserving quality within noise. Latency drops from 0.8–3.6 s to **<1 ms**.
+
+| Workload | Model | Baseline $/task | Warm $/task | Saved | Baseline quality | Warm quality | Baseline p50 | Warm p50 |
+|---|---|---|---|---|---|---|---|---|
+| support_triage | Haiku 4.5 | $0.0003 | $0 | 100% | 4.47 ± 0.34 | 4.42 ± 0.35 | 772 ms | 0 ms |
+| support_triage | Sonnet 4.6 | $0.0039 | $0 | 100% | (judge skipped) | (judge skipped) | 1266 ms | 0 ms |
+| research_analyst | Haiku 4.5 | $0.0018 | $0 (warm/replay) | 100% | 4.44 ± 0.18 | 4.44 ± 0.17 | 3584 ms | 0 ms |
+| code_review | Haiku 4.5 | $0.0017 | $0 | 100% | 3.33 ± 0.51 | 3.37 ± 0.56 | 2812 ms | 0 ms |
+| humaneval | Haiku 4.5 | $0.0002 | $0 | 100% | pass@1 100% | pass@1 100% | 1290 ms | 0 ms |
+
+**The `thriftai_replay` condition on `research_analyst`** is the cleanest demonstration of selective replay: 120 of 160 measured calls (the 3 unchanged agents × 20 tasks × 2 seeds) deterministically replay from trace, while the 40 critic-only calls served from the warm exact cache. **$0 paid, quality 4.47 ± 0.16 — statistically indistinguishable from baseline.**
+
+Total cost to produce this report: **$15.13** (Anthropic API spend, dated 2026-05-21 — `pricing.yaml`).
 
 ## Reproducing the published numbers
 

@@ -8,10 +8,8 @@ we just confirm the functions run cleanly and produce non-empty files.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 
 from benchmarks.runner import plots, report
 
