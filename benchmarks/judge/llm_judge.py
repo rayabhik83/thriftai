@@ -109,9 +109,41 @@ Output ONLY valid JSON, no other text, with this exact shape:
 """
 
 
+CODE_REVIEW_RUBRIC = """\
+You are a strict, fair judge of a code-review pipeline.
+
+You are given:
+- code: the original snippet under review.
+- issues: the reviewer's list of issues.
+- patch: the proposer's suggested patch.
+- critique: the self-critic's own follow-up critique.
+
+Score each on a 1-5 integer scale:
+
+  review_thoroughness (1-5):
+    5 = surfaces real bugs / design issues / performance concerns
+    3 = surface-level (style) but accurate
+    1 = mostly invented issues or none
+
+  patch_correctness (1-5):
+    5 = patch addresses the top issues without introducing regressions
+    3 = partially addresses but with minor problems
+    1 = does not compile or breaks the original behavior
+
+  self_critique_value (1-5):
+    5 = identifies a real regression / missed edge case in the patch
+    3 = a generic concern, partially valid
+    1 = vacuous
+
+Output ONLY valid JSON, no other text, with this exact shape:
+{"review_thoroughness": <int>, "patch_correctness": <int>, "self_critique_value": <int>, "rationale": "<1-2 sentence justification>"}
+"""
+
+
 RUBRICS: dict[str, str] = {
     "support_triage": SUPPORT_TRIAGE_RUBRIC,
     "research_analyst": RESEARCH_ANALYST_RUBRIC,
+    "code_review": CODE_REVIEW_RUBRIC,
 }
 
 

@@ -1,0 +1,22 @@
+workload: code_review
+
+description: |
+  Three-agent pipeline (reviewer → proposer → self_critic) over 20
+  Python snippets sampled from bigcode/the-stack-smol. Latency
+  overhead matters here — code review is one of ThriftAI's most
+  realistic dev-loop use cases.
+
+data_file: benchmarks/data/code_review_snippets.jsonl
+
+default_model: claude-haiku-4-5
+
+conditions:
+  - baseline
+  - thriftai_cold
+  - thriftai_warm
+
+thriftai_session:
+  embedding_model: null
+  semantic_threshold: 0.92
+  semantic_min_chars: 100
+  semantic_bucket_size: 1000
