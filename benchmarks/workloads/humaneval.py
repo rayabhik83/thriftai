@@ -29,17 +29,23 @@ SLICE_SIZE = 20
 
 @ta.agent(name="completer")
 def completer(run, prompt: str, model: str) -> str:
-    """Generate the function body for a HumanEval prompt."""
+    """Generate the FULL function for a HumanEval prompt.
+
+    We ask for the entire function (def + body) because LLMs are reliably
+    bad at producing body-only output with correct relative indentation.
+    The runner extracts the body by stripping everything up to and
+    including the def signature.
+    """
     return run.completion(
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You complete Python functions. Given the docstring + "
-                    "function signature, return ONLY the function body "
-                    "(starting at the first line of the body, NOT including "
-                    "the def line). No markdown fences, no comments before "
-                    "code, no surrounding text."
+                    "Complete the Python function. Return the COMPLETE "
+                    "function definition (def line + docstring if any + "
+                    "body). Use proper 4-space indentation. Do NOT wrap "
+                    "the output in markdown fences or include any text "
+                    "outside the function."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -109,18 +115,18 @@ def run_one(
         ctx = session.run()
 
     with ctx as run:
-        body = completer(run, task["prompt"], model)
+        full_function = completer(run, task["prompt"], model)
         trace_id = run.trace_id
 
-    # Reassemble: prompt already includes the def line; we just need the
-    # body. Strip optional code fences.
-    body_clean = _strip_fences(body)
-    completion = task["prompt"] + body_clean
+    # The model returns the FULL function. Use it verbatim as the
+    # completion — the human_eval evaluator just exec()s the completion
+    # string and looks for the entry_point function name.
+    completion = _strip_fences(full_function)
 
     return {
         "task_id": task["id"],
         "completion": completion,
-        "raw_body": body,
+        "raw_body": full_function,
         "trace_id": trace_id,
     }
 
@@ -128,11 +134,9 @@ def run_one(
 def _strip_fences(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
-        # Drop opening fence (and optional language).
         first_newline = text.find("\n")
         if first_newline != -1:
             text = text[first_newline + 1 :]
-        # Drop closing fence.
         last_fence = text.rfind("```")
         if last_fence != -1:
             text = text[:last_fence]
