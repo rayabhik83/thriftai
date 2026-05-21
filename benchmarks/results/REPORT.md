@@ -2,7 +2,7 @@
 
 > **Status: complete.** All planned workloads measured.
 >
-> Generated 2026-05-21 02:37 UTC from 1710 calls across 30 run(s).
+> Generated 2026-05-21 02:43 UTC from 1840 calls across 32 run(s).
 > Pricing snapshot: pulled 2026-05-19 — [source](https://www.anthropic.com/pricing#anthropic-api).
 
 ## Headline
@@ -20,11 +20,11 @@
 | research_analyst | thriftai_replay | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0018 ± 0.0002 $ | 4.47 ± 0.16 | 0 | 0 |
 | research_analyst | thriftai_warm | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0019 ± 0.0003 $ | 4.44 ± 0.17 | 0 | 1 |
 | support_triage | baseline | claude-haiku-4-5 | 0.0003 ± 0.0000 $ | 0.0000 ± 0.0000 $ | 4.47 ± 0.34 | 772 | 2202 |
-| support_triage | baseline | claude-sonnet-4-6 | 0.0038 ± 0.0005 $ | 0.0000 ± 0.0000 $ | — | 1275 | 3896 |
+| support_triage | baseline | claude-sonnet-4-6 | 0.0039 ± 0.0003 $ | 0.0000 ± 0.0000 $ | — | 1266 | 3869 |
 | support_triage | thriftai_cold | claude-haiku-4-5 | 0.0003 ± 0.0000 $ | 0.0000 ± 0.0000 $ | 4.47 ± 0.39 | 762 | 1972 |
-| support_triage | thriftai_cold | claude-sonnet-4-6 | 0.0039 ± 0.0003 $ | 0.0000 ± 0.0000 $ | — | 1585 | 4023 |
+| support_triage | thriftai_cold | claude-sonnet-4-6 | 0.0039 ± 0.0003 $ | 0.0000 ± 0.0000 $ | — | 1418 | 4083 |
 | support_triage | thriftai_warm | claude-haiku-4-5 | 0.0000 ± 0.0000 $ | 0.0003 ± 0.0000 $ | 4.42 ± 0.35 | 0 | 1 |
-| support_triage | thriftai_warm | claude-sonnet-4-6 | 0.0000 ± 0.0000 $ | 0.0039 ± 0.0003 $ | — | 0 | 0 |
+| support_triage | thriftai_warm | claude-sonnet-4-6 | 0.0000 ± 0.0000 $ | 0.0039 ± 0.0003 $ | — | 0 | 1 |
 
 ## Call resolution breakdown
 
@@ -44,11 +44,11 @@ tells you which mechanism is doing the work.
 | research_analyst | thriftai_replay | claude-haiku-4-5 | 0 | 40 | 0 | 120 |
 | research_analyst | thriftai_warm | claude-haiku-4-5 | 0 | 160 | 0 | 0 |
 | support_triage | baseline | claude-haiku-4-5 | 120 | 0 | 0 | 0 |
-| support_triage | baseline | claude-sonnet-4-6 | 110 | 0 | 0 | 0 |
+| support_triage | baseline | claude-sonnet-4-6 | 120 | 0 | 0 | 0 |
 | support_triage | thriftai_cold | claude-haiku-4-5 | 120 | 0 | 0 | 0 |
-| support_triage | thriftai_cold | claude-sonnet-4-6 | 60 | 0 | 0 | 0 |
+| support_triage | thriftai_cold | claude-sonnet-4-6 | 120 | 0 | 0 | 0 |
 | support_triage | thriftai_warm | claude-haiku-4-5 | 0 | 120 | 0 | 0 |
-| support_triage | thriftai_warm | claude-sonnet-4-6 | 0 | 60 | 0 | 0 |
+| support_triage | thriftai_warm | claude-sonnet-4-6 | 0 | 120 | 0 | 0 |
 
 ## Per-workload deep dives
 
@@ -139,16 +139,16 @@ tells you which mechanism is doing the work.
 
 | Condition | Paid mean | Saved mean | Reduction vs. baseline |
 |---|---|---|---|
-| baseline | $0.0020 | $0.0000 | +0.0% |
-| thriftai_cold | $0.0015 | $0.0000 | +24.7% |
-| thriftai_warm | $0.0000 | $0.0015 | +100.0% |
+| baseline | $0.0021 | $0.0000 | +0.0% |
+| thriftai_cold | $0.0021 | $0.0000 | -0.9% |
+| thriftai_warm | $0.0000 | $0.0021 | +100.0% |
 
 **Latency per condition** (p50 / p95 ms, all calls included):
 
 | Condition | p50 | p95 |
 |---|---|---|
-| baseline | 1137 | 3666 |
-| thriftai_cold | 1137 | 3602 |
+| baseline | 1137 | 3661 |
+| thriftai_cold | 1211 | 3759 |
 | thriftai_warm | 0 | 1 |
 
 **Quality (Opus judge, 1-5 mean ± std):**
