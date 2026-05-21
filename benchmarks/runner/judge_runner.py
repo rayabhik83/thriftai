@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--budget",
         type=float,
-        default=10.0,
+        default=15.0,
         help="Hard cap (USD) checked against the shared spend ledger.",
     )
     args = p.parse_args(argv)

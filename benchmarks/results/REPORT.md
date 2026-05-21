@@ -1,6 +1,8 @@
 # ThriftAI Benchmark Results
 
-> Generated 2026-05-21 00:56 UTC from 360 calls across 6 run(s).
+> **Status: partial.** 1/4 workloads complete: support_triage. Pending: research_analyst, code_review, humaneval.
+>
+> Generated 2026-05-21 01:00 UTC from 360 calls across 6 run(s).
 > Pricing snapshot: pulled 2026-05-19 — [source](https://www.anthropic.com/pricing#anthropic-api).
 
 ## Headline
@@ -24,7 +26,32 @@ tells you which mechanism is doing the work.
 
 ## Per-workload deep dives
 
-_filled in once workloads land._
+### support_triage
+
+**Cost reduction per condition** (mean across seeds and any models; warm vs. baseline tells the headline savings):
+
+| Condition | Paid mean | Saved mean | Reduction vs. baseline |
+|---|---|---|---|
+| baseline | $0.0003 | $0.0000 | +0.0% |
+| thriftai_cold | $0.0003 | $0.0000 | +0.3% |
+| thriftai_warm | $0.0000 | $0.0003 | +100.0% |
+
+**Latency per condition** (p50 / p95 ms, all calls included):
+
+| Condition | p50 | p95 |
+|---|---|---|
+| baseline | 772 | 2202 |
+| thriftai_cold | 762 | 1972 |
+| thriftai_warm | 0 | 1 |
+
+**Quality (Opus judge, 1-5 mean ± std):**
+
+| Condition | Score |
+|---|---|
+| baseline | 4.47 ± 0.34 |
+| thriftai_cold | 4.47 ± 0.39 |
+| thriftai_warm | 4.42 ± 0.35 |
+
 
 ## Methodology
 

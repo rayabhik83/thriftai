@@ -246,6 +246,87 @@ def _render_resolution_breakdown(counts: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_per_workload_deep_dive(
+    paid_by_cell: dict,
+    would_have_by_cell: dict,
+    latency_by_cell: dict,
+    counts: dict,
+    judge_by_cell: dict,
+) -> str:
+    """Per-workload section — savings %, resolution mix, latency narrative."""
+    workloads = sorted({cell[0] for cell in paid_by_cell.keys()})
+    if not workloads:
+        return "_filled in once workloads land._\n"
+
+    parts: list[str] = []
+    for workload in workloads:
+        parts.append(f"### {workload}\n\n")
+
+        cells_for_workload = {cell for cell in paid_by_cell if cell[0] == workload}
+        conditions_present = sorted({c[1] for c in cells_for_workload})
+        models_present = sorted({c[2] for c in cells_for_workload})
+
+        # Baseline mean (averaged across models within the workload) is the
+        # denominator for "reduction vs. baseline" in the cost table.
+        baseline_vals: list[float] = []
+        for model in models_present:
+            baseline_vals.extend(paid_by_cell.get((workload, "baseline", model), []))
+        avg_baseline = stats.mean(baseline_vals) if baseline_vals else 0.0
+
+        parts.append(
+            "**Cost reduction per condition** "
+            "(mean across seeds and any models; warm vs. baseline tells "
+            "the headline savings):\n\n"
+        )
+        parts.append("| Condition | Paid mean | Saved mean | Reduction vs. baseline |\n")
+        parts.append("|---|---|---|---|\n")
+        for condition in conditions_present:
+            paid_all: list[float] = []
+            saved_all: list[float] = []
+            for model in models_present:
+                p = paid_by_cell.get((workload, condition, model), [])
+                w = would_have_by_cell.get((workload, condition, model), [])
+                paid_all.extend(p)
+                if len(p) == len(w):
+                    saved_all.extend([wi - pi for wi, pi in zip(w, p)])
+            m_paid = stats.mean(paid_all) if paid_all else 0.0
+            m_saved = stats.mean(saved_all) if saved_all else 0.0
+            if avg_baseline > 0:
+                reduction = f"{(1 - m_paid / avg_baseline) * 100:+.1f}%"
+            else:
+                reduction = "—"
+            parts.append(
+                f"| {condition} | ${m_paid:.4f} | ${m_saved:.4f} | {reduction} |\n"
+            )
+
+        parts.append(
+            "\n**Latency per condition** (p50 / p95 ms, all calls included):\n\n"
+        )
+        parts.append("| Condition | p50 | p95 |\n|---|---|---|\n")
+        for condition in conditions_present:
+            lats: list[float] = []
+            for model in models_present:
+                lats.extend(latency_by_cell.get((workload, condition, model), []))
+            if lats:
+                parts.append(
+                    f"| {condition} | {stats.p50(lats):.0f} | {stats.p95(lats):.0f} |\n"
+                )
+            else:
+                parts.append(f"| {condition} | — | — |\n")
+
+        parts.append("\n**Quality (Opus judge, 1-5 mean ± std):**\n\n")
+        parts.append("| Condition | Score |\n|---|---|\n")
+        for condition in conditions_present:
+            qs: list[float] = []
+            for model in models_present:
+                qs.extend(judge_by_cell.get((workload, condition, model), []))
+            qcell = stats.fmt_mean_std(qs, precision=2) if qs else "—"
+            parts.append(f"| {condition} | {qcell} |\n")
+        parts.append("\n")
+
+    return "".join(parts)
+
+
 def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
     """Build the full report markdown string. Pure function — no IO."""
     paid_by_cell, would_have_by_cell = _per_task_cost(records, pricing)
@@ -258,12 +339,26 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
     source_url = pricing.get("source_url", "")
     n_records = len(records)
     n_runs = len({r["run_id"] for r in records}) if records else 0
+    workloads_with_data = sorted({r["workload"] for r in records}) if records else []
+    n_workloads_total = 4  # support_triage, research_analyst, code_review, humaneval
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    if workloads_with_data and len(workloads_with_data) < n_workloads_total:
+        status_line = (
+            f"> **Status: partial.** {len(workloads_with_data)}/{n_workloads_total} "
+            f"workloads complete: {', '.join(workloads_with_data)}. Pending: "
+            f"{', '.join(w for w in ['support_triage', 'research_analyst', 'code_review', 'humaneval'] if w not in workloads_with_data)}.\n>\n"
+        )
+    elif workloads_with_data:
+        status_line = "> **Status: complete.** All planned workloads measured.\n>\n"
+    else:
+        status_line = "> **Status: no data.**\n>\n"
+
     return (
         f"# ThriftAI Benchmark Results\n\n"
-        f"> Generated {now} from {n_records} calls across {n_runs} run(s).\n"
+        + status_line
+        + f"> Generated {now} from {n_records} calls across {n_runs} run(s).\n"
         f"> Pricing snapshot: pulled {pulled_on}"
         + (f" — [source]({source_url})" if source_url else "")
         + ".\n\n"
@@ -276,7 +371,10 @@ def render(records: list[dict[str, Any]], pricing: dict[str, Any]) -> str:
         "tells you which mechanism is doing the work.\n\n"
         + _render_resolution_breakdown(counts)
         + "\n## Per-workload deep dives\n\n"
-        "_filled in once workloads land._\n\n"
+        + _render_per_workload_deep_dive(
+            paid_by_cell, would_have_by_cell, latency_by_cell, counts, judge_by_cell
+        )
+        + "\n"
         "## Methodology\n\n"
         "See `benchmarks/README.md` and `benchmarks/PLAN.md`.\n\n"
         "## Raw data\n\n"

@@ -182,11 +182,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--budget",
         type=float,
-        default=10.0,
+        default=15.0,
         help=(
             "Hard cap on cumulative spend (USD) across all runs in this branch. "
             "Persistent across invocations via benchmarks/cache/spend_ledger.jsonl. "
-            "Default: 10."
+            "Default: 15."
         ),
     )
     p.add_argument(
