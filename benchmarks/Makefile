@@ -14,7 +14,7 @@
 PY ?= python3
 REPO_ROOT := $(shell git rev-parse --show-toplevel)
 
-.PHONY: help install test smoke bench report rederive clean spent budget-reset
+.PHONY: help install test smoke bench report rederive judge plots clean spent budget-reset
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ — /'
@@ -44,6 +44,9 @@ rederive: ## verify dollar figures from raw logs + pricing.yaml
 
 judge: ## score every artifacts.jsonl with Opus and write judge_scores.jsonl
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.judge_runner
+
+plots: ## render the 3 required figures into benchmarks/results/plots/
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.plots
 
 clean: ## clear raw logs and bench cache (keeps REPORT.md and plots/)
 	rm -rf $(REPO_ROOT)/benchmarks/results/raw $(REPO_ROOT)/benchmarks/cache
