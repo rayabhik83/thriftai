@@ -46,6 +46,9 @@ rederive: ## verify dollar figures from raw logs + pricing.yaml
 judge: ## score every artifacts.jsonl with Opus and write judge_scores.jsonl
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.judge_runner
 
+humaneval-score: ## run official human_eval evaluator on humaneval artifacts
+	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.humaneval_score
+
 plots: ## render the 3 required figures into benchmarks/results/plots/
 	cd $(REPO_ROOT) && $(PY) -m benchmarks.runner.plots
 
