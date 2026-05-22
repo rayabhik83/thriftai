@@ -42,6 +42,17 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
 ]
+bench = [
+    "numpy>=1.24",
+    "matplotlib>=3.8",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "scipy>=1.11",
+    "human-eval>=1.0.3",
+    "datasets>=2.14",
+    "tenacity>=8.0",
+    "pytest>=8.0",
+]
 
 [project.scripts]
 thriftai = "thriftai.cli:main"
@@ -64,6 +75,7 @@ exclude = [
     "docs",
     "mkdocs.yml",
     "site",
+    "benchmarks",
 ]
 
 [tool.hatch.build.targets.wheel]

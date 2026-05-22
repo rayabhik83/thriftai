@@ -1,0 +1,22 @@
+workload: humaneval
+
+description: |
+  HumanEval slice (first 20 problems, sorted by task_id length then
+  lexicographically). Single-agent: completer generates the function
+  body. Quality metric is the official pass@1, scored by the
+  `human_eval` package — deterministic, no LLM-as-judge needed.
+
+data_file: benchmarks/data/humaneval_slice.jsonl
+
+default_model: claude-haiku-4-5
+
+conditions:
+  - baseline
+  - thriftai_cold
+  - thriftai_warm
+
+thriftai_session:
+  embedding_model: null
+  semantic_threshold: 0.92
+  semantic_min_chars: 100
+  semantic_bucket_size: 1000

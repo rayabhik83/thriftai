@@ -1,0 +1,5 @@
+{"id": "T001", "category": "billing", "cluster": "subscription_double_charge", "text": "I was charged twice for my monthly subscription this billing cycle. Can you refund the duplicate?"}
+{"id": "T002", "category": "billing", "cluster": "subscription_double_charge", "text": "There are two identical charges on my card for the same subscription month. Please help."}
+{"id": "T003", "category": "billing", "cluster": "subscription_double_charge", "text": "My account shows a duplicate billing for last month. I'd like one of them reversed."}
+{"id": "T004", "category": "account", "cluster": "password_reset_loop", "text": "Every time I try to reset my password the link says it's expired by the time I click it."}
+{"id": "T005", "category": "technical", "cluster": "app_crashes_on_launch", "text": "The app crashes immediately when I open it after the latest update. I can't get past the splash screen."}

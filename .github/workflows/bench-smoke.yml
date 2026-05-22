@@ -1,0 +1,71 @@
+name: bench-smoke
+
+# Runs `make smoke` (N=2, support_triage only, Haiku only) on every PR.
+# Spend per run: ~$0.10. Skipped when ANTHROPIC_API_KEY isn't available
+# (e.g. PRs from forks), so it's safe to leave unconditionally on.
+#
+# Setup required (one-time, by the repo owner):
+#   Settings → Secrets and variables → Actions → New repository secret
+#   Name: ANTHROPIC_API_KEY
+#   Value: <your key>
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "benchmarks/**"
+      - "thriftai/**"
+      - "pyproject.toml"
+      - ".github/workflows/bench-smoke.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and bench extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[bench,semantic]"
+
+      - name: Skip if no API key (e.g. forked PR)
+        id: keycheck
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::notice::ANTHROPIC_API_KEY not set; skipping bench smoke."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run bench smoke
+        if: steps.keycheck.outputs.skip == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd benchmarks && make smoke
+
+      - name: Upload raw logs (on smoke run)
+        if: steps.keycheck.outputs.skip == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-smoke-raw-${{ github.run_id }}
+          path: benchmarks/results/raw/
+          if-no-files-found: warn
+          retention-days: 14
