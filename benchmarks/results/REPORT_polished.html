@@ -27,8 +27,34 @@ Pricing: <code>pricing.yaml</code> pulled 2026-05-19 — <a href="https://www.an
 <h2>The three figures</h2>
 <p><strong>Cost reduction vs. baseline, by workload and condition</strong> — warm cache and replay both consistently hit 100% savings vs. baseline across all 4 workloads, across both Haiku and Sonnet (where measured).</p>
 <p><img alt="Cost reduction across workloads" src="plots/cost_reduction.png" /></p>
-<p><strong>Quality vs. cost Pareto</strong> — each <code>(workload, model)</code> series traces baseline → cold → warm. The downward-left trajectory is what we want to see: the warm point is far left (cheap) at essentially the same y-coordinate (quality) as baseline. No regression.</p>
+<p><strong>Quality vs. cost Pareto</strong> — each <code>(workload, model)</code> series traces baseline → cold → warm (and replay, for research_analyst). Condition is encoded by marker shape; the line connecting them is the <em>trajectory</em>. The ideal shape — flat, sliding left — is "cheaper without quality cost." That's what we see.</p>
 <p><img alt="Quality-cost Pareto trajectory" src="plots/quality_cost_pareto.png" /></p>
+<p><strong>No detectable quality regression at N=2.</strong> Paired-task t-tests between baseline and warm:</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th>Mean diff (warm − baseline)</th>
+<th>t-test p</th>
+<th>Wilcoxon p</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>support_triage (Haiku)</td>
+<td>−0.042</td>
+<td>0.303</td>
+<td>0.653</td>
+</tr>
+<tr>
+<td>code_review</td>
+<td>+0.033</td>
+<td>0.570</td>
+<td>0.591</td>
+</tr>
+</tbody>
+</table>
+<p>Both p-values are well above 0.05 — we cannot reject "the means are the same." But "not significant" ≠ "proven equal." The honest framing is: <strong>at N=2 (40 paired task-scores per cell), the smallest difference we can reliably detect is ≈ ±0.22 on the 1-5 scale.</strong> Anything smaller falls below our resolution. The observed movements (0.03–0.04) are ~6× below that floor — so we can say "no quality regression detected at this sample size," not "quality preserved exactly." To pin down sub-percent quality differences you'd need N≈75, not N=2.</p>
 <p><strong>Latency distribution per condition</strong> — symlog y-axis. The baseline / cold boxes sit in the 700-4000 ms range; the warm box collapses to &lt;1 ms (the SQLite lookup floor). This is the cleanest visual evidence of the dev-loop latency win.</p>
 <p><img alt="Latency distribution by condition" src="plots/latency_distribution.png" /></p>
 <h2>Headline</h2>

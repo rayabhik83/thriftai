@@ -191,8 +191,12 @@ def plot_quality_cost_pareto(
 
     Lines connect points sharing (workload, model) so the user can see
     the trajectory baseline → cold → warm.
+
+    Condition is encoded by marker shape (not inline text) to avoid the
+    text-overlap problem at the cluster of (warm, replay) points all
+    sitting at x≈0.
     """
-    fig, ax = plt.subplots(figsize=(7, 6))
+    fig, ax = plt.subplots(figsize=(8.5, 6))
     grouped: dict[tuple, list[tuple[str, float, float]]] = defaultdict(list)
     for (workload, condition, model), agg in by_cell.items():
         paid = sum(agg.get("paid", [])) / max(len(agg.get("paid", [])), 1)
@@ -202,23 +206,75 @@ def plot_quality_cost_pareto(
             continue
         grouped[(workload, model)].append((condition, paid, quality))
 
-    for (workload, model), points in grouped.items():
-        order = {"baseline": 0, "thriftai_cold": 1, "thriftai_warm": 2}
-        points.sort(key=lambda p: order.get(p[0], 99))
+    condition_marker = {
+        "baseline": "o",
+        "thriftai_cold": "s",
+        "thriftai_warm": "D",
+        "thriftai_replay": "^",
+    }
+    condition_order = {
+        "baseline": 0, "thriftai_cold": 1, "thriftai_warm": 2, "thriftai_replay": 3
+    }
+
+    series_handles = []
+    for (workload, model), points in sorted(grouped.items()):
+        points.sort(key=lambda p: condition_order.get(p[0], 99))
         xs = [p[1] for p in points]
         ys = [p[2] for p in points]
-        ax.plot(xs, ys, marker="o", label=f"{workload} / {model}")
+        (line,) = ax.plot(xs, ys, "-", linewidth=1.5, alpha=0.5)
+        color = line.get_color()
         for cond, x, y in points:
-            ax.annotate(cond, (x, y), fontsize=8, alpha=0.7)
+            ax.scatter(
+                x, y,
+                marker=condition_marker.get(cond, "o"),
+                color=color, s=80, zorder=3, edgecolors="white", linewidths=0.5,
+            )
+        # Workload + model label at the *baseline* (largest-x) point, offset right.
+        if points:
+            cond_max_x = max(points, key=lambda p: p[1])
+            ax.annotate(
+                f"{workload}\n{model}",
+                xy=(cond_max_x[1], cond_max_x[2]),
+                xytext=(8, 0),
+                textcoords="offset points",
+                fontsize=8,
+                color=color,
+                va="center",
+                ha="left",
+            )
+        series_handles.append((line, f"{workload} / {model}"))
 
-    ax.set_xlabel("Mean $/task paid (USD)")
+    # Condition-marker legend (gray, no series color).
+    from matplotlib.lines import Line2D
+
+    marker_handles = [
+        Line2D([0], [0], marker=m, color="gray", linestyle="",
+               markersize=9, label=lbl)
+        for lbl, m in [
+            ("baseline", "o"),
+            ("thriftai_cold", "s"),
+            ("thriftai_warm", "D"),
+            ("thriftai_replay", "^"),
+        ]
+    ]
+    legend = ax.legend(
+        handles=marker_handles, loc="lower right",
+        title="condition", fontsize=8, framealpha=0.95,
+    )
+    ax.add_artist(legend)
+
+    ax.set_xlabel("Mean $/task paid (USD, log scale)")
     ax.set_ylabel("Mean judge score (1-5)")
-    ax.set_title("Quality vs. cost — Pareto trajectory per workload")
-    if grouped:
-        ax.legend()
+    ax.set_title("Quality vs. cost — Pareto trajectory per (workload, model)")
+    # Log-scale x so the cluster of warm/replay points near $0 is visible
+    # alongside the higher-cost baseline points. Use symlog so $0 itself
+    # is plottable.
+    ax.set_xscale("symlog", linthresh=1e-5)
+    ax.set_ylim(1, 5.2)
+    ax.grid(True, linestyle=":", alpha=0.4)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120)
+    fig.savefig(out_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
     return out_path
 

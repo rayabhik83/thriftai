@@ -15,9 +15,18 @@
 
 ![Cost reduction across workloads](plots/cost_reduction.png)
 
-**Quality vs. cost Pareto** — each `(workload, model)` series traces baseline → cold → warm. The downward-left trajectory is what we want to see: the warm point is far left (cheap) at essentially the same y-coordinate (quality) as baseline. No regression.
+**Quality vs. cost Pareto** — each `(workload, model)` series traces baseline → cold → warm (and replay, for research_analyst). Condition is encoded by marker shape; the line connecting them is the *trajectory*. The ideal shape — flat, sliding left — is "cheaper without quality cost." That's what we see.
 
 ![Quality-cost Pareto trajectory](plots/quality_cost_pareto.png)
+
+**No detectable quality regression at N=2.** Paired-task t-tests between baseline and warm:
+
+| Workload | Mean diff (warm − baseline) | t-test p | Wilcoxon p |
+|---|---|---|---|
+| support_triage (Haiku) | −0.042 | 0.303 | 0.653 |
+| code_review | +0.033 | 0.570 | 0.591 |
+
+Both p-values are well above 0.05 — we cannot reject "the means are the same." But "not significant" ≠ "proven equal." The honest framing is: **at N=2 (40 paired task-scores per cell), the smallest difference we can reliably detect is ≈ ±0.22 on the 1-5 scale.** Anything smaller falls below our resolution. The observed movements (0.03–0.04) are ~6× below that floor — so we can say "no quality regression detected at this sample size," not "quality preserved exactly." To pin down sub-percent quality differences you'd need N≈75, not N=2.
 
 **Latency distribution per condition** — symlog y-axis. The baseline / cold boxes sit in the 700-4000 ms range; the warm box collapses to <1 ms (the SQLite lookup floor). This is the cleanest visual evidence of the dev-loop latency win.
 
